@@ -1,3 +1,11 @@
+## v0.2.0 (2026-02-22)
+
+### Features
+- feat(macos): add Tauri v2 menu bar app (#10)
+
+### Other
+- chore(beads): add beads for AI agent-friendly issue tracking
+
 ## v0.1.1 (2026-02-22)
 
 ### Fixes
