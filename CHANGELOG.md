@@ -1,3 +1,12 @@
+## v0.3.1 (2026-02-22)
+
+### Fixes
+- fix(android): resolve race where receiver loop steals clipboard ACK (#11)
+
+### Other
+- docs: update README for menu bar app, install instructions, and xattr workaround
+- chore: untrack .beads/issues.jsonl from main branch
+
 ## v0.3.0 (2026-02-22)
 
 ### Features
