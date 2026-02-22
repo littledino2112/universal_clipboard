@@ -7,6 +7,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.net.Socket
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Connection state.
@@ -27,15 +28,18 @@ class ConnectionManager(
     companion object {
         private const val TAG = "ConnectionManager"
         private const val KEEPALIVE_INTERVAL_MS = 30_000L
+        internal const val ACK_TIMEOUT_MS = 5_000L
     }
 
     private val _state = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val state: StateFlow<ConnectionState> = _state
 
-    private var transport: NoiseTransport? = null
+    @Volatile
+    internal var transport: NoiseTransport? = null
     private var keepaliveJob: Job? = null
     private var receiveJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    internal val pendingAck = AtomicReference<CompletableDeferred<Boolean>?>(null)
 
     /**
      * Connect to a receiver with a pairing code (first time).
@@ -121,18 +125,26 @@ class ConnectionManager(
 
     /**
      * Send clipboard text to the connected receiver.
+     * The receiver loop handles all incoming messages; this method waits
+     * on a [CompletableDeferred] that the receiver loop completes when
+     * it sees a [MessageType.CLIPBOARD_ACK].
      */
-    fun sendClipboardText(text: String): Boolean {
+    suspend fun sendClipboardText(text: String): Boolean {
         val conn = transport ?: return false
+        val ack = CompletableDeferred<Boolean>()
+        pendingAck.set(ack)
         return try {
             conn.sendMessage(ProtocolMessage.clipboardSend(text))
-            // Wait for ACK
-            val response = conn.recvMessage()
-            response.type == MessageType.CLIPBOARD_ACK
+            withTimeout(ACK_TIMEOUT_MS) { ack.await() }
+        } catch (e: TimeoutCancellationException) {
+            Log.e(TAG, "ACK timeout", e)
+            false
         } catch (e: Exception) {
             Log.e(TAG, "Send failed", e)
             handleDisconnect()
             false
+        } finally {
+            pendingAck.compareAndSet(ack, null)
         }
     }
 
@@ -165,13 +177,16 @@ class ConnectionManager(
         }
     }
 
-    private fun startReceiving() {
+    internal fun startReceiving() {
         receiveJob?.cancel()
         receiveJob = scope.launch {
             while (isActive) {
                 try {
                     val msg = transport?.recvMessage() ?: break
                     when (msg.type) {
+                        MessageType.CLIPBOARD_ACK -> {
+                            pendingAck.get()?.complete(true)
+                        }
                         MessageType.PING -> {
                             transport?.sendMessage(ProtocolMessage.pong())
                         }
@@ -192,6 +207,7 @@ class ConnectionManager(
     private fun handleDisconnect() {
         keepaliveJob?.cancel()
         receiveJob?.cancel()
+        pendingAck.getAndSet(null)?.complete(false)
         transport?.close()
         transport = null
         _state.value = ConnectionState.Disconnected
