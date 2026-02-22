@@ -42,6 +42,7 @@ impl Message {
         Self { msg_type, payload }
     }
 
+    #[allow(dead_code)]
     pub fn clipboard_send(text: &str) -> Self {
         Self::new(MessageType::ClipboardSend, text.as_bytes().to_vec())
     }
@@ -102,6 +103,7 @@ impl Message {
 }
 
 /// Maximum message payload size (1 MB).
+#[allow(dead_code)]
 const MAX_PAYLOAD_SIZE: u32 = 1_048_576;
 
 /// Handshake type markers sent before the Noise handshake.
@@ -110,6 +112,7 @@ pub const HANDSHAKE_PAIRED: u8 = 0x01;
 
 /// Read a plaintext protocol message from a TCP stream.
 /// Used during handshake phase before Noise encryption is established.
+#[allow(dead_code)]
 pub async fn read_raw_message(stream: &mut TcpStream) -> Result<Message> {
     let msg_type_byte = stream.read_u8().await?;
     let msg_type = MessageType::try_from(msg_type_byte)?;
@@ -119,13 +122,11 @@ pub async fn read_raw_message(stream: &mut TcpStream) -> Result<Message> {
     }
     let mut payload = vec![0u8; len as usize];
     stream.read_exact(&mut payload).await?;
-    Ok(Message {
-        msg_type,
-        payload,
-    })
+    Ok(Message { msg_type, payload })
 }
 
 /// Write a plaintext protocol message to a TCP stream.
+#[allow(dead_code)]
 pub async fn write_raw_message(stream: &mut TcpStream, msg: &Message) -> Result<()> {
     let encoded = msg.encode();
     stream.write_all(&encoded).await?;

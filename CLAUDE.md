@@ -53,6 +53,7 @@ Scopes: `android`, `macos`, `protocol`, or omit for project-wide changes.
 After implementing any feature, bug fix, or code change:
 1. **Add tests** for all new logic — every new class, data class, utility function, or behavioral change must have corresponding unit tests.
 2. Run the relevant test suite and verify all tests pass before considering the task complete.
+3. **Rust (macOS):** Run `cd macos && cargo fmt` and `cd macos && cargo clippy -- -D warnings` and fix any issues before committing.
 
 ## Key Architecture Notes
 
