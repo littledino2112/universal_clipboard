@@ -5,9 +5,32 @@ P2P encrypted clipboard sync between Android and macOS. No central server, no cl
 ## How It Works
 
 1. **Android app** (sender): Paste content into the app, select items, and send them to your Mac
-2. **macOS CLI** (receiver): Runs in the background, receives content directly onto your system clipboard
+2. **macOS receiver**: Runs in the background, receives content directly onto your system clipboard
+   - **Menu bar app** (recommended): System tray icon with popup panel showing pairing code and status
+   - **CLI**: Headless terminal receiver
 
 All communication is encrypted using the **Noise Protocol Framework** (same cryptographic primitives as WireGuard: Curve25519, ChaCha20-Poly1305, SHA-256).
+
+## Install
+
+Download the latest release from [GitHub Releases](../../releases):
+
+- **Android**: `universal-clipboard-*-android.apk`
+- **macOS Menu Bar App**: `Universal-Clipboard-*-macos-aarch64.dmg`
+- **macOS CLI**: `uclip-*-macos-aarch64`
+
+### macOS: "App is damaged" error
+
+The app is not code-signed with an Apple Developer certificate. After downloading, remove the quarantine attribute:
+
+```bash
+# For the .app (after mounting DMG or copying to /Applications)
+xattr -cr "/Applications/Universal Clipboard.app"
+
+# Or for the CLI binary
+xattr -cr ~/Downloads/uclip-*-macos-aarch64
+chmod +x ~/Downloads/uclip-*-macos-aarch64
+```
 
 ## Dev Environment Setup (Nix)
 
@@ -31,17 +54,26 @@ This gives you Rust, Android SDK, JDK 17, Gradle, and all system deps.
 
 ## Quick Start
 
-### macOS Receiver (Rust)
+### macOS Menu Bar App (Tauri)
 
 ```bash
 cd macos
-cargo build --release
+cargo build --release -p uclip-app
+
+# Run the app (appears in menu bar, no dock icon)
+./target/release/uclip-app
+```
+
+The app auto-starts on login. Click the tray icon to see the pairing code and connection status.
+
+### macOS CLI
+
+```bash
+cd macos
+cargo build --release -p uclip
 
 # Start the receiver
 ./target/release/uclip listen --name "My MacBook"
-
-# Or with nix
-nix run .# -- listen --name "My MacBook"
 ```
 
 The receiver will display a **6-digit pairing code**. Enter this code on your Android device.
@@ -95,16 +127,27 @@ Android (Sender)                    macOS (Receiver)
 universal_clipboard/
 ├── protocol/           # Protocol specification
 │   └── PROTOCOL.md
-├── macos/              # macOS Rust CLI receiver
-│   ├── Cargo.toml
-│   └── src/
-│       ├── main.rs         # CLI entry point
-│       ├── server.rs       # TCP server & session handling
-│       ├── crypto.rs       # Noise handshakes & transport
-│       ├── protocol.rs     # Wire protocol messages
-│       ├── clipboard.rs    # System clipboard access
-│       ├── discovery.rs    # mDNS advertisement
-│       └── storage.rs      # Key & device persistence
+├── macos/              # macOS receiver (Cargo workspace)
+│   ├── core/           # uclip-core library
+│   │   └── src/
+│   │       ├── lib.rs          # Module re-exports
+│   │       ├── server.rs       # TCP server & session handling
+│   │       ├── crypto.rs       # Noise handshakes & transport
+│   │       ├── protocol.rs     # Wire protocol messages
+│   │       ├── clipboard.rs    # System clipboard access
+│   │       ├── discovery.rs    # mDNS advertisement
+│   │       ├── storage.rs      # Key & device persistence
+│   │       └── events.rs       # ServerEvent & AppState
+│   ├── cli/            # uclip CLI binary
+│   │   └── src/main.rs
+│   └── app/            # uclip-app Tauri menu bar app
+│       ├── src/
+│       │   ├── main.rs         # Tray icon, window, server spawn
+│       │   └── commands.rs     # Tauri IPC commands
+│       └── ui/
+│           ├── index.html
+│           ├── main.js
+│           └── style.css
 └── android/            # Android Kotlin sender app
     └── app/src/main/
         ├── AndroidManifest.xml
@@ -135,9 +178,15 @@ uclip unpair <device-name>
 uclip reset
 ```
 
-## Auto-Start on macOS (launchd)
+## Auto-Start on macOS
 
-To run the receiver automatically on login:
+### Menu Bar App
+
+The Tauri menu bar app automatically registers a LaunchAgent on first launch. It will start on login without any manual setup.
+
+### CLI (launchd)
+
+To run the CLI receiver automatically on login:
 
 1. Copy the binary to a permanent location:
 
