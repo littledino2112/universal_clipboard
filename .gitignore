@@ -15,6 +15,13 @@ android/app/*.iml
 .DS_Store
 Thumbs.db
 
+# Nix
+result
+result-*
+
+# direnv
+.direnv/
+
 # IDE
 .idea/
 .vscode/
