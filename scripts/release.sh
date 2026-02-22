@@ -74,8 +74,12 @@ fi
 
 mv "$TMPFILE" CHANGELOG.md
 
+# Update version in tauri.conf.json
+NEW_VERSION="0.${MAJOR}.${MINOR}"
+sed -i '' "s/\"version\": \".*\"/\"version\": \"${NEW_VERSION}\"/" macos/app/tauri.conf.json
+
 # Commit, tag, and push
-git add CHANGELOG.md
+git add CHANGELOG.md macos/app/tauri.conf.json
 git commit -m "chore: release $NEW_TAG"
 git tag "$NEW_TAG"
 git push origin main "$NEW_TAG"
