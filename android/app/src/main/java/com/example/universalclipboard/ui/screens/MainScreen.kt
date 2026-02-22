@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.universalclipboard.crypto.PairedDevice
 import com.example.universalclipboard.data.ClipboardItem
 import com.example.universalclipboard.network.ConnectionState
 import com.example.universalclipboard.ui.MainUiState
@@ -34,6 +35,8 @@ fun MainScreen(
     onDisconnect: () -> Unit,
     onStartDiscovery: () -> Unit,
     onPairWithDevice: (com.example.universalclipboard.network.DiscoveredDevice) -> Unit,
+    onReconnectPairedDevice: (PairedDevice) -> Unit,
+    onRemovePairedDevice: (String) -> Unit,
     onClearSnackbar: () -> Unit
 ) {
     val clipboardManager = LocalClipboardManager.current
@@ -100,7 +103,9 @@ fun MainScreen(
                 onPairManual = onPairManual,
                 onDisconnect = onDisconnect,
                 onStartDiscovery = onStartDiscovery,
-                onPairWithDevice = onPairWithDevice
+                onPairWithDevice = onPairWithDevice,
+                onReconnectPairedDevice = onReconnectPairedDevice,
+                onRemovePairedDevice = onRemovePairedDevice
             )
 
             Divider(modifier = Modifier.padding(vertical = 8.dp))
@@ -154,7 +159,9 @@ private fun ConnectionSection(
     onPairManual: () -> Unit,
     onDisconnect: () -> Unit,
     onStartDiscovery: () -> Unit,
-    onPairWithDevice: (com.example.universalclipboard.network.DiscoveredDevice) -> Unit
+    onPairWithDevice: (com.example.universalclipboard.network.DiscoveredDevice) -> Unit,
+    onReconnectPairedDevice: (PairedDevice) -> Unit,
+    onRemovePairedDevice: (String) -> Unit
 ) {
     when (uiState.connectionState) {
         is ConnectionState.Connected -> {
@@ -266,6 +273,57 @@ private fun ConnectionSection(
                             enabled = uiState.pairingCode.length == 6
                         ) {
                             Text("${device.name} (${device.host}:${device.port})")
+                        }
+                    }
+                }
+
+                // Paired devices
+                if (uiState.pairedDevices.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        "Paired Devices:",
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                    uiState.pairedDevices.forEach { device ->
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        device.name,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    if (device.host != null && device.port != null) {
+                                        Text(
+                                            "${device.host}:${device.port}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.outline
+                                        )
+                                    }
+                                }
+                                Button(
+                                    onClick = { onReconnectPairedDevice(device) },
+                                    enabled = device.host != null && device.port != null,
+                                    modifier = Modifier.padding(start = 8.dp)
+                                ) {
+                                    Text("Reconnect")
+                                }
+                                IconButton(onClick = { onRemovePairedDevice(device.name) }) {
+                                    Icon(
+                                        Icons.Default.Delete,
+                                        contentDescription = "Forget device",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
                         }
                     }
                 }

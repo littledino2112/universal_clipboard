@@ -6,6 +6,31 @@ import com.southernstorm.noise.protocol.Noise
 import com.southernstorm.noise.protocol.DHState
 
 /**
+ * A paired device with its public key and last-known network address.
+ */
+data class PairedDevice(
+    val name: String,
+    val publicKey: ByteArray,
+    val host: String? = null,
+    val port: Int? = null
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is PairedDevice) return false
+        return name == other.name && publicKey.contentEquals(other.publicKey) &&
+                host == other.host && port == other.port
+    }
+
+    override fun hashCode(): Int {
+        var result = name.hashCode()
+        result = 31 * result + publicKey.contentHashCode()
+        result = 31 * result + (host?.hashCode() ?: 0)
+        result = 31 * result + (port ?: 0)
+        return result
+    }
+}
+
+/**
  * Manages the device's persistent Curve25519 identity keypair.
  */
 class IdentityManager(context: Context) {
@@ -47,43 +72,57 @@ class IdentityManager(context: Context) {
     }
 
     /**
-     * Store a paired device's public key.
+     * Store a paired device's public key and optional network address.
+     * Format: name=keyHex,host,port (backward-compatible with old name=keyHex format)
      */
-    fun savePairedDevice(name: String, publicKey: ByteArray) {
-        val devicesPrefs = prefs.edit()
-        val existing = getPairedDevices().mapValues { bytesToHex(it.value) }.toMutableMap()
-        existing[name] = bytesToHex(publicKey)
-        devicesPrefs.putString("paired_devices", existing.entries.joinToString(";") {
-            "${it.key}=${it.value}"
-        })
-        devicesPrefs.apply()
+    fun savePairedDevice(name: String, publicKey: ByteArray, host: String? = null, port: Int? = null) {
+        val existing = getPairedDevices().toMutableList()
+        existing.removeAll { it.name == name }
+        existing.add(PairedDevice(name, publicKey, host, port))
+        storePairedDevices(existing)
     }
 
     /**
-     * Get all paired devices as name -> publicKey map.
+     * Get all paired devices.
      */
-    fun getPairedDevices(): Map<String, ByteArray> {
-        val raw = prefs.getString("paired_devices", null) ?: return emptyMap()
-        return raw.split(";").filter { it.contains("=") }.associate { entry ->
-            val (name, keyHex) = entry.split("=", limit = 2)
-            name to hexToBytes(keyHex)
-        }
+    fun getPairedDevices(): List<PairedDevice> {
+        val raw = prefs.getString("paired_devices", null) ?: return emptyList()
+        return parsePairedDevices(raw)
     }
 
     /**
      * Remove a paired device.
      */
     fun removePairedDevice(name: String) {
-        val existing = getPairedDevices().toMutableMap()
-        existing.remove(name)
-        prefs.edit().putString("paired_devices", existing.entries.joinToString(";") {
-            "${it.key}=${it.value}"
-        }).apply()
+        val existing = getPairedDevices().toMutableList()
+        existing.removeAll { it.name == name }
+        storePairedDevices(existing)
     }
 
-    private fun bytesToHex(bytes: ByteArray): String =
-        bytes.joinToString("") { "%02x".format(it) }
+    private fun storePairedDevices(devices: List<PairedDevice>) {
+        prefs.edit().putString("paired_devices", serializePairedDevices(devices)).apply()
+    }
 
-    private fun hexToBytes(hex: String): ByteArray =
-        hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+    companion object {
+        internal fun bytesToHex(bytes: ByteArray): String =
+            bytes.joinToString("") { "%02x".format(it) }
+
+        internal fun hexToBytes(hex: String): ByteArray =
+            hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+
+        internal fun serializePairedDevices(devices: List<PairedDevice>): String =
+            devices.joinToString(";") { d ->
+                "${d.name}=${bytesToHex(d.publicKey)},${d.host ?: ""},${d.port ?: ""}"
+            }
+
+        internal fun parsePairedDevices(raw: String): List<PairedDevice> =
+            raw.split(";").filter { it.contains("=") }.map { entry ->
+                val (name, value) = entry.split("=", limit = 2)
+                val parts = value.split(",")
+                val keyHex = parts[0]
+                val host = parts.getOrNull(1)?.takeIf { it.isNotEmpty() }
+                val port = parts.getOrNull(2)?.takeIf { it.isNotEmpty() }?.toIntOrNull()
+                PairedDevice(name, hexToBytes(keyHex), host, port)
+            }
+    }
 }
