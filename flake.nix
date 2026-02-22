@@ -72,6 +72,8 @@
               pkgs.openssl
             ] ++ linuxDeps ++ darwinDeps;
 
+            ANDROID_HOME = "${androidSdk}/share/android-sdk";
+            ANDROID_SDK_ROOT = "${androidSdk}/share/android-sdk";
             JAVA_HOME = "${pkgs.jdk17}";
 
             LD_LIBRARY_PATH = pkgs.lib.optionalString pkgs.stdenv.isLinux
