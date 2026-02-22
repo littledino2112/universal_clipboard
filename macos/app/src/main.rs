@@ -36,6 +36,10 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_positioner::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Focused(false) = event {
                 if window.label() == "panel" {
@@ -52,6 +56,14 @@ fn main() {
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
             setup_tray(app.handle())?;
+
+            // Enable autostart on first launch
+            use tauri_plugin_autostart::ManagerExt;
+            let autostart = app.autolaunch();
+            if !autostart.is_enabled().unwrap_or(false) {
+                let _ = autostart.enable();
+                info!("autostart enabled");
+            }
 
             // Initialize core state
             let store = DeviceStore::default_location()?;
