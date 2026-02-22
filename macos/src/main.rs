@@ -8,7 +8,6 @@ mod storage;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use tokio::net::TcpListener;
-use tracing::info;
 
 #[derive(Parser)]
 #[command(name = "uclip", about = "Universal Clipboard - P2P encrypted clipboard receiver")]

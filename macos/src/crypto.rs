@@ -2,8 +2,7 @@ use anyhow::{bail, Context, Result};
 use hkdf::Hkdf;
 use rand::Rng;
 use sha2::Sha256;
-use snow::{Builder, HandshakeState, TransportState};
-use std::path::PathBuf;
+use snow::{Builder, TransportState};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tracing::{debug, info};
@@ -115,6 +114,7 @@ impl NoiseTransport {
     }
 
     /// Get the inner TCP stream reference (for shutdown).
+    #[allow(dead_code)]
     pub fn stream_mut(&mut self) -> &mut TcpStream {
         &mut self.stream
     }
