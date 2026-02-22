@@ -39,14 +39,16 @@ cd android && gradle app:testDebugUnitTest
 cd macos && cargo test
 ```
 
-## Commit Messages
+## Commit Messages & PR Titles
 
-Use [Conventional Commits](https://www.conventionalcommits.org/) format:
+Use [Conventional Commits](https://www.conventionalcommits.org/) format for both commit messages and PR titles:
 ```
 <type>(<scope>): <description>
 ```
 Types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`, `build`
 Scopes: `android`, `macos`, `protocol`, or omit for project-wide changes.
+
+PRs should always target `main` as the base branch.
 
 ## Important: After Every Task
 
