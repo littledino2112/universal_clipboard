@@ -1,3 +1,8 @@
+## v0.2.1 (2026-02-22)
+
+### Fixes
+- fix(build): find Tauri DMG by glob instead of hardcoded filename
+
 ## v0.2.0 (2026-02-22)
 
 ### Features
