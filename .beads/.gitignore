@@ -37,8 +37,5 @@ beads.right.meta.json
 .sync.lock
 sync_base.jsonl
 
-# NOTE: Do NOT add negation patterns (e.g., !issues.jsonl) here.
-# They would override fork protection in .git/info/exclude, allowing
-# contributors to accidentally commit upstream issue databases.
-# The JSONL files (issues.jsonl, interactions.jsonl) and config files
-# are tracked by git by default since no pattern above ignores them.
+# Ignore JSONL issue database on main branch - managed via beads worktree
+issues.jsonl
