@@ -1,0 +1,15 @@
+[package]
+name = "uclip"
+version = "0.1.0"
+edition = "2021"
+description = "Universal Clipboard - P2P encrypted clipboard receiver CLI"
+
+[dependencies]
+uclip-core = { path = "../core" }
+
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+clap = { version = "4", features = ["derive"] }
+tracing-subscriber = { version = "0.3", features = ["fmt"] }
+anyhow = "1"
+directories = "5"

@@ -1,0 +1,167 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  background: #1e1e2e;
+  color: #cdd6f4;
+  -webkit-user-select: none;
+  user-select: none;
+  overflow: hidden;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 16px;
+  gap: 16px;
+}
+
+header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f9e2af;
+  flex-shrink: 0;
+}
+
+.status-dot.connected {
+  background: #a6e3a1;
+}
+
+.status-dot.error {
+  background: #f38ba8;
+}
+
+.status-text {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.device-name {
+  font-size: 11px;
+  color: #6c7086;
+}
+
+.section-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #6c7086;
+  margin-bottom: 8px;
+}
+
+.pairing-section {
+  text-align: center;
+  background: #181825;
+  border-radius: 12px;
+  padding: 20px 16px;
+}
+
+.pairing-code {
+  font-size: 36px;
+  font-weight: 700;
+  letter-spacing: 8px;
+  font-variant-numeric: tabular-nums;
+  color: #cba6f7;
+  margin: 8px 0;
+}
+
+.pairing-hint {
+  font-size: 11px;
+  color: #6c7086;
+}
+
+.connection-section {
+  background: #181825;
+  border-radius: 12px;
+  padding: 12px 16px;
+}
+
+.connected-device {
+  font-size: 14px;
+  font-weight: 500;
+  color: #a6e3a1;
+}
+
+.devices-section {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.devices-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.device-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #181825;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.device-item-name {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.device-item-key {
+  font-size: 10px;
+  color: #6c7086;
+  font-family: "SF Mono", Menlo, monospace;
+}
+
+.unpair-btn {
+  background: none;
+  border: 1px solid #45475a;
+  border-radius: 6px;
+  color: #6c7086;
+  font-size: 11px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.unpair-btn:hover {
+  border-color: #f38ba8;
+  color: #f38ba8;
+}
+
+.empty-state {
+  font-size: 12px;
+  color: #45475a;
+  text-align: center;
+  padding: 16px;
+}
+
+footer {
+  padding-top: 4px;
+  border-top: 1px solid #313244;
+}
+
+.port-info {
+  font-size: 10px;
+  color: #45475a;
+  font-family: "SF Mono", Menlo, monospace;
+}

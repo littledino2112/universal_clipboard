@@ -5,7 +5,10 @@ P2P encrypted clipboard sync between Android and macOS using the Noise Protocol 
 ## Project Structure
 
 - `android/` — Android app (Kotlin + Compose, Gradle build)
-- `macos/` — macOS receiver (Rust)
+- `macos/` — macOS receiver (Rust, Cargo workspace)
+  - `macos/core/` — `uclip-core` library: all business logic (crypto, protocol, server, storage, events)
+  - `macos/cli/` — `uclip` binary: CLI receiver
+  - `macos/app/` — `uclip-app` binary: Tauri v2 menu bar app
 - `protocol/` — Protocol documentation
 - `flake.nix` — Nix dev environment (Rust, JDK17, Android SDK, Gradle)
 
@@ -21,10 +24,16 @@ cd android && gradle assembleDebug
 ```
 APK output: `android/app/build/outputs/apk/debug/app-debug.apk`
 
-### macOS Receiver
+### macOS CLI
 ```
-cd macos && cargo build
-cargo run -- listen
+cd macos && cargo build -p uclip
+cargo run -p uclip -- listen
+```
+
+### macOS Menu Bar App
+```
+cd macos && cargo build -p uclip-app
+cargo run -p uclip-app
 ```
 
 ## Test Commands
@@ -55,7 +64,7 @@ PRs should always target `main` as the base branch.
 After implementing any feature, bug fix, or code change:
 1. **Add tests** for all new logic — every new class, data class, utility function, or behavioral change must have corresponding unit tests.
 2. Run the relevant test suite and verify all tests pass before considering the task complete.
-3. **Rust (macOS):** Run `cd macos && cargo fmt` and `cd macos && cargo clippy -- -D warnings` and fix any issues before committing.
+3. **Rust (macOS):** Run `cd macos && cargo fmt --all` and `cd macos && cargo clippy --workspace -- -D warnings` and fix any issues before committing.
 
 ## Key Architecture Notes
 
