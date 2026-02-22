@@ -1,3 +1,8 @@
+## v0.3.0 (2026-02-22)
+
+### Features
+- feat(macos): enable autostart on login via tauri-plugin-autostart
+
 ## v0.2.2 (2026-02-22)
 
 ### Fixes
