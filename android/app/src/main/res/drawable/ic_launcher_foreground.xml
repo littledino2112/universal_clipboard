@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Clipboard body with clip tab -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="
+            M40,33 L46,33 L46,29
+            C46,25.7 48.7,23 52,23 L56,23
+            C59.3,23 62,25.7 62,29 L62,33 L68,33
+            C71.3,33 74,35.7 74,39 L74,82
+            C74,85.3 71.3,88 68,88 L40,88
+            C36.7,88 34,85.3 34,82 L34,39
+            C34,35.7 36.7,33 40,33 Z
+            M50,29 C50,27.9 50.9,27 52,27 L56,27
+            C57.1,27 58,27.9 58,29 L58,37 L50,37 Z
+            M42,48 L66,48 L66,51 L42,51 Z
+            M42,56 L66,56 L66,59 L42,59 Z
+            M42,64 L58,64 L58,67 L42,67 Z" />
+</vector>

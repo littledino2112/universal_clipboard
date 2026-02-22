@@ -2,8 +2,7 @@ use anyhow::{bail, Context, Result};
 use hkdf::Hkdf;
 use rand::Rng;
 use sha2::Sha256;
-use snow::{Builder, HandshakeState, TransportState};
-use std::path::PathBuf;
+use snow::{Builder, TransportState};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tracing::{debug, info};
@@ -115,6 +114,7 @@ impl NoiseTransport {
     }
 
     /// Get the inner TCP stream reference (for shutdown).
+    #[allow(dead_code)]
     pub fn stream_mut(&mut self) -> &mut TcpStream {
         &mut self.stream
     }
@@ -227,14 +227,10 @@ pub async fn accept_connection(
 
             if let Some(device_name) = store.find_device_by_key(&remote_key)? {
                 info!("incoming connection from paired device: {}", device_name);
-                let transport =
-                    handshake_paired_responder(stream, identity, &remote_key).await?;
+                let transport = handshake_paired_responder(stream, identity, &remote_key).await?;
                 Ok((transport, device_name))
             } else {
-                bail!(
-                    "unknown device with key: {}",
-                    hex::encode(&remote_key)
-                );
+                bail!("unknown device with key: {}", hex::encode(&remote_key));
             }
         }
         _ => bail!("unknown handshake type: 0x{:02x}", handshake_type),
@@ -357,14 +353,8 @@ mod tests {
         responder.read_message(&buf1[..len3], &mut buf2).unwrap();
 
         // Both should have each other's static keys
-        assert_eq!(
-            initiator.get_remote_static().unwrap(),
-            &resp_kp.public[..]
-        );
-        assert_eq!(
-            responder.get_remote_static().unwrap(),
-            &init_kp.public[..]
-        );
+        assert_eq!(initiator.get_remote_static().unwrap(), &resp_kp.public[..]);
+        assert_eq!(responder.get_remote_static().unwrap(), &init_kp.public[..]);
 
         // Convert to transport mode and exchange messages
         let mut init_transport = initiator.into_transport_mode().unwrap();
@@ -372,12 +362,16 @@ mod tests {
 
         let plaintext = b"Hello from initiator!";
         let len = init_transport.write_message(plaintext, &mut buf1).unwrap();
-        let decrypted_len = resp_transport.read_message(&buf1[..len], &mut buf2).unwrap();
+        let decrypted_len = resp_transport
+            .read_message(&buf1[..len], &mut buf2)
+            .unwrap();
         assert_eq!(&buf2[..decrypted_len], plaintext);
 
         let response = b"Hello from responder!";
         let len = resp_transport.write_message(response, &mut buf1).unwrap();
-        let decrypted_len = init_transport.read_message(&buf1[..len], &mut buf2).unwrap();
+        let decrypted_len = init_transport
+            .read_message(&buf1[..len], &mut buf2)
+            .unwrap();
         assert_eq!(&buf2[..decrypted_len], response);
     }
 
@@ -419,7 +413,9 @@ mod tests {
         // Verify encrypted communication works
         let msg = b"secure message";
         let len = init_transport.write_message(msg, &mut buf1).unwrap();
-        let dec_len = resp_transport.read_message(&buf1[..len], &mut buf2).unwrap();
+        let dec_len = resp_transport
+            .read_message(&buf1[..len], &mut buf2)
+            .unwrap();
         assert_eq!(&buf2[..dec_len], msg);
     }
 

@@ -13,6 +13,7 @@ pub fn set_clipboard_text(text: &str) -> Result<()> {
 }
 
 /// Read the current text content from the system clipboard.
+#[allow(dead_code)]
 pub fn get_clipboard_text() -> Result<Option<String>> {
     let mut clipboard = Clipboard::new().context("failed to access clipboard")?;
     match clipboard.get_text() {

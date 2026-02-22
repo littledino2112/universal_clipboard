@@ -14,21 +14,11 @@ impl DiscoveryServer {
     pub fn new(port: u16, device_name: &str) -> Result<Self> {
         let mdns = ServiceDaemon::new()?;
         let host_name = format!("{}.local.", device_name.replace(' ', "-"));
-        let service_info = ServiceInfo::new(
-            SERVICE_TYPE,
-            device_name,
-            &host_name,
-            "",
-            port,
-            None,
-        )?;
+        let service_info = ServiceInfo::new(SERVICE_TYPE, device_name, &host_name, "", port, None)?;
         let fullname = service_info.get_fullname().to_string();
 
         mdns.register(service_info)?;
-        info!(
-            "mDNS: advertising {} on port {}",
-            device_name, port
-        );
+        info!("mDNS: advertising {} on port {}", device_name, port);
 
         Ok(Self {
             mdns,

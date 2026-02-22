@@ -52,11 +52,10 @@
               libxkbcommon
             ]);
 
-            darwinDeps = pkgs.lib.optionals pkgs.stdenv.isDarwin (with pkgs; [
-              darwin.apple_sdk.frameworks.AppKit
-              darwin.apple_sdk.frameworks.CoreFoundation
-              darwin.apple_sdk.frameworks.Security
-            ]);
+            darwinDeps = pkgs.lib.optionals pkgs.stdenv.isDarwin [
+              pkgs.apple-sdk_15
+              pkgs.darwin.libiconv
+            ];
           in
           pkgs.mkShell {
             buildInputs = [
@@ -105,11 +104,10 @@
             libxkbcommon
           ]);
 
-          darwinDeps = pkgs.lib.optionals pkgs.stdenv.isDarwin (with pkgs; [
-            darwin.apple_sdk.frameworks.AppKit
-            darwin.apple_sdk.frameworks.CoreFoundation
-            darwin.apple_sdk.frameworks.Security
-          ]);
+          darwinDeps = pkgs.lib.optionals pkgs.stdenv.isDarwin [
+            pkgs.apple-sdk_15
+            pkgs.darwin.libiconv
+          ];
         in {
           default = pkgs.rustPlatform.buildRustPackage {
             pname = "uclip";
