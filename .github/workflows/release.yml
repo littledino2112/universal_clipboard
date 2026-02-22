@@ -34,14 +34,14 @@ jobs:
           name: android-apk
           path: universal-clipboard-*-android.apk
 
-  macos:
+  macos-cli:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - run: cd macos && cargo build --release
+      - run: cd macos && cargo build --release -p uclip
 
       - name: Rename binary
         run: |
@@ -50,11 +50,35 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-binary
+          name: macos-cli
           path: uclip-*-macos-aarch64
 
+  macos-app:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2"
+
+      - name: Build Tauri app
+        run: cd macos/app && cargo tauri build
+
+      - name: Rename artifacts
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cp "macos/target/release/bundle/dmg/Universal Clipboard_${VERSION}_aarch64.dmg" \
+            "Universal-Clipboard-${VERSION}-macos-aarch64.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          path: Universal-Clipboard-*-macos-aarch64.dmg
+
   release:
-    needs: [android, macos]
+    needs: [android, macos-cli, macos-app]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -68,3 +92,4 @@ jobs:
           files: |
             universal-clipboard-*-android.apk
             uclip-*-macos-aarch64
+            Universal-Clipboard-*-macos-aarch64.dmg
