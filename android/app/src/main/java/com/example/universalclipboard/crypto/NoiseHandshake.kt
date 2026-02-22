@@ -56,7 +56,6 @@ object NoiseHandshake {
 
         val handshake = HandshakeState(NOISE_PATTERN_PAIRING, HandshakeState.INITIATOR)
         handshake.localKeyPair.setPrivateKey(localKeyPair.privateKey, 0)
-        handshake.localKeyPair.setPublicKey(localKeyPair.publicKey, 0)
         handshake.setPreSharedKey(psk, 0, psk.size)
         handshake.start()
 
@@ -105,7 +104,6 @@ object NoiseHandshake {
     ): CipherStatePair {
         val handshake = HandshakeState(NOISE_PATTERN_PAIRED, HandshakeState.INITIATOR)
         handshake.localKeyPair.setPrivateKey(localKeyPair.privateKey, 0)
-        handshake.localKeyPair.setPublicKey(localKeyPair.publicKey, 0)
         handshake.remotePublicKey.setPublicKey(remotePublicKey, 0)
         handshake.start()
 
