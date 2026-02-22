@@ -1,3 +1,13 @@
+## v0.1.1 (2026-02-22)
+
+### Fixes
+- fix(android): graceful disconnect handling with reconnect limits (#9)
+
+### Other
+- chore: release v0.1.1
+- chore: add main branch guard to release script (#8)
+- chore: add Makefile release target and update CLAUDE.md (#7)
+
 # Changelog
 ## v0.1.1 (2026-02-22)
 
