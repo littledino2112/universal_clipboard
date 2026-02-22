@@ -49,7 +49,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
 
     // Noise Protocol (Java implementation, works in Kotlin)
-    implementation("com.github.rweather:noise-java:1.0.0")
+    implementation("com.github.rweather:noise-java:49377b6dfc")
 
     // mDNS/NSD is built into Android SDK (android.net.nsd)
 

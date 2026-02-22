@@ -51,7 +51,7 @@ class IdentityManager(context: Context) {
      */
     fun savePairedDevice(name: String, publicKey: ByteArray) {
         val devicesPrefs = prefs.edit()
-        val existing = getPairedDevices().toMutableMap()
+        val existing = getPairedDevices().mapValues { bytesToHex(it.value) }.toMutableMap()
         existing[name] = bytesToHex(publicKey)
         devicesPrefs.putString("paired_devices", existing.entries.joinToString(";") {
             "${it.key}=${it.value}"
