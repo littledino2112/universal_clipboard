@@ -9,6 +9,26 @@ P2P encrypted clipboard sync between Android and macOS. No central server, no cl
 
 All communication is encrypted using the **Noise Protocol Framework** (same cryptographic primitives as WireGuard: Curve25519, ChaCha20-Poly1305, SHA-256).
 
+## Dev Environment Setup (Nix)
+
+Install [Determinate Nix](https://github.com/DeterminateSystems/nix-installer) (flakes enabled by default):
+
+```bash
+curl -fsSL https://install.determinate.systems/nix | sh -s -- install
+```
+
+Then enter the dev shell:
+
+```bash
+# With direnv (recommended — auto-activates on cd)
+direnv allow
+
+# Or manually
+nix develop
+```
+
+This gives you Rust, Android SDK, JDK 17, Gradle, and all system deps.
+
 ## Quick Start
 
 ### macOS Receiver (Rust)
@@ -19,6 +39,9 @@ cargo build --release
 
 # Start the receiver
 ./target/release/uclip listen --name "My MacBook"
+
+# Or with nix
+nix run .# -- listen --name "My MacBook"
 ```
 
 The receiver will display a **6-digit pairing code**. Enter this code on your Android device.
@@ -114,6 +137,8 @@ uclip reset
 
 ## Requirements
 
-- **macOS**: Rust 1.70+ (for building)
-- **Android**: API 26+ (Android 8.0+), Android Studio
+- **Dev environment**: [Determinate Nix](https://github.com/DeterminateSystems/nix-installer) (recommended) or install manually:
+  - Rust 1.70+
+  - JDK 17 + Android SDK (build-tools 34, platform 34)
+- **Android device**: API 26+ (Android 8.0+)
 - Both devices on the same local network (WiFi)

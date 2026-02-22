@@ -3,109 +3,121 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-    flake-utils.url = "github:numtide/flake-utils";
+
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
     android-nixpkgs = {
-      url = "github:nickcao/android-nixpkgs/main";
+      url = "github:tadfisher/android-nixpkgs";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
-  outputs = { self, nixpkgs, flake-utils, rust-overlay, android-nixpkgs }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        overlays = [ (import rust-overlay) ];
-        pkgs = import nixpkgs { inherit system overlays; };
+  outputs = { self, nixpkgs, rust-overlay, android-nixpkgs }:
+    let
+      # Systems supported by both rust-overlay and android-nixpkgs
+      systems = [ "x86_64-linux" "aarch64-darwin" "x86_64-darwin" ];
 
-        # Rust toolchain
-        rustToolchain = pkgs.rust-bin.stable.latest.default.override {
-          extensions = [ "rust-src" "rust-analyzer" "clippy" ];
+      forEachSystem = f: nixpkgs.lib.genAttrs systems (system: f {
+        inherit system;
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [ rust-overlay.overlays.default ];
         };
+      });
+    in {
+      devShells = forEachSystem ({ system, pkgs }: {
+        default =
+          let
+            rustToolchain = pkgs.rust-bin.stable.latest.default.override {
+              extensions = [ "rust-src" "rust-analyzer" "clippy" ];
+            };
 
-        # Android SDK
-        androidSdk = android-nixpkgs.sdk.${system} (sdkPkgs: with sdkPkgs; [
-          cmdline-tools-latest
-          build-tools-34-0-0
-          platform-tools
-          platforms-android-34
-        ]);
+            androidSdk = android-nixpkgs.sdk.${system} (sdkPkgs: with sdkPkgs; [
+              cmdline-tools-latest
+              build-tools-34-0-0
+              platform-tools
+              platforms-android-34
+            ]);
 
-        # System libraries needed by arboard (clipboard) on Linux
-        linuxClipboardDeps = with pkgs; pkgs.lib.optionals pkgs.stdenv.isLinux [
-          xorg.libX11
-          xorg.libXcursor
-          xorg.libXrandr
-          xorg.libXi
-          xorg.libxcb
-          wayland
-          libxkbcommon
-        ];
+            linuxDeps = pkgs.lib.optionals pkgs.stdenv.isLinux (with pkgs; [
+              xorg.libX11
+              xorg.libXcursor
+              xorg.libXrandr
+              xorg.libXi
+              xorg.libxcb
+              wayland
+              libxkbcommon
+            ]);
 
-        # System libraries needed by arboard on macOS
-        darwinDeps = with pkgs; pkgs.lib.optionals pkgs.stdenv.isDarwin [
-          darwin.apple_sdk.frameworks.AppKit
-          darwin.apple_sdk.frameworks.CoreFoundation
-          darwin.apple_sdk.frameworks.Security
-        ];
+            darwinDeps = pkgs.lib.optionals pkgs.stdenv.isDarwin (with pkgs; [
+              darwin.apple_sdk.frameworks.AppKit
+              darwin.apple_sdk.frameworks.CoreFoundation
+              darwin.apple_sdk.frameworks.Security
+            ]);
+          in
+          pkgs.mkShell {
+            buildInputs = [
+              rustToolchain
+              pkgs.cargo-watch
+              pkgs.cargo-nextest
 
-      in {
-        devShells.default = pkgs.mkShell {
-          buildInputs = [
-            # Rust
-            rustToolchain
-            pkgs.cargo-watch
-            pkgs.cargo-nextest
+              androidSdk
+              pkgs.jdk17
+              pkgs.gradle
 
-            # Android
-            androidSdk
-            pkgs.jdk17
-            pkgs.gradle
+              pkgs.pkg-config
+              pkgs.openssl
+            ] ++ linuxDeps ++ darwinDeps;
 
-            # Build essentials
-            pkgs.pkg-config
-            pkgs.openssl
+            JAVA_HOME = "${pkgs.jdk17}";
 
-            # Dev tools
-            pkgs.just
-          ] ++ linuxClipboardDeps ++ darwinDeps;
+            LD_LIBRARY_PATH = pkgs.lib.optionalString pkgs.stdenv.isLinux
+              (pkgs.lib.makeLibraryPath linuxDeps);
 
-          # Environment variables
-          JAVA_HOME = "${pkgs.jdk17}";
-          ANDROID_HOME = "${androidSdk}/share/android-sdk";
-          ANDROID_SDK_ROOT = "${androidSdk}/share/android-sdk";
+            shellHook = ''
+              echo "Universal Clipboard dev environment"
+              echo ""
+              echo "  Rust:    $(rustc --version)"
+              echo "  Cargo:   $(cargo --version)"
+              echo "  Java:    $(java --version 2>&1 | head -1)"
+              echo "  Android: $ANDROID_HOME"
+              echo ""
+              echo "Commands:"
+              echo "  cargo test             - run receiver tests (in macos/)"
+              echo "  cargo run -- listen    - start the receiver"
+              echo "  cd android && gradle assembleDebug  - build Android APK"
+              echo ""
+            '';
+          };
+      });
 
-          # Rust linker needs to find system libs
-          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath linuxClipboardDeps;
+      packages = forEachSystem ({ system, pkgs }:
+        let
+          linuxDeps = pkgs.lib.optionals pkgs.stdenv.isLinux (with pkgs; [
+            xorg.libX11
+            xorg.libxcb
+            wayland
+            libxkbcommon
+          ]);
 
-          shellHook = ''
-            echo "Universal Clipboard dev environment"
-            echo ""
-            echo "  Rust:    $(rustc --version)"
-            echo "  Cargo:   $(cargo --version)"
-            echo "  Java:    $(java --version 2>&1 | head -1)"
-            echo "  Android: $ANDROID_HOME"
-            echo ""
-            echo "Commands:"
-            echo "  cargo test       - run macOS receiver tests"
-            echo "  cargo run -- listen  - start the receiver"
-            echo "  cd android && gradle build  - build Android app"
-            echo ""
-          '';
-        };
-
-        # Build the macOS/Linux receiver binary
-        packages.default = pkgs.rustPlatform.buildRustPackage {
-          pname = "uclip";
-          version = "0.1.0";
-          src = ./macos;
-          cargoLock.lockFile = ./macos/Cargo.lock;
-
-          nativeBuildInputs = [ pkgs.pkg-config ];
-          buildInputs = [ pkgs.openssl ] ++ linuxClipboardDeps ++ darwinDeps;
-        };
-      }
-    );
+          darwinDeps = pkgs.lib.optionals pkgs.stdenv.isDarwin (with pkgs; [
+            darwin.apple_sdk.frameworks.AppKit
+            darwin.apple_sdk.frameworks.CoreFoundation
+            darwin.apple_sdk.frameworks.Security
+          ]);
+        in {
+          default = pkgs.rustPlatform.buildRustPackage {
+            pname = "uclip";
+            version = "0.1.0";
+            src = ./macos;
+            cargoLock.lockFile = ./macos/Cargo.lock;
+            nativeBuildInputs = [ pkgs.pkg-config ];
+            buildInputs = [ pkgs.openssl ] ++ linuxDeps ++ darwinDeps;
+          };
+        }
+      );
+    };
 }
