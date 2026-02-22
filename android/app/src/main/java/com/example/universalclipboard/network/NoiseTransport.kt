@@ -23,9 +23,9 @@ class NoiseTransport(
      */
     @Throws(IOException::class)
     fun send(plaintext: ByteArray) {
-        val ciphertext = ByteArray(plaintext.size + 16) // AEAD tag overhead
-        val len = cipherPair.sender.encryptWithAd(null, plaintext, 0, ciphertext, 0, plaintext.size)
         synchronized(output) {
+            val ciphertext = ByteArray(plaintext.size + 16) // AEAD tag overhead
+            val len = cipherPair.sender.encryptWithAd(null, plaintext, 0, ciphertext, 0, plaintext.size)
             output.writeShort(len)
             output.write(ciphertext, 0, len)
             output.flush()
@@ -37,19 +37,17 @@ class NoiseTransport(
      */
     @Throws(IOException::class)
     fun recv(): ByteArray {
-        val len: Int
-        val ciphertext: ByteArray
         synchronized(input) {
-            len = input.readUnsignedShort()
+            val len = input.readUnsignedShort()
             if (len > maxMsgLen) {
                 throw IOException("Message too large: $len bytes")
             }
-            ciphertext = ByteArray(len)
+            val ciphertext = ByteArray(len)
             input.readFully(ciphertext)
+            val plaintext = ByteArray(len)
+            val plainLen = cipherPair.receiver.decryptWithAd(null, ciphertext, 0, plaintext, 0, len)
+            return plaintext.copyOf(plainLen)
         }
-        val plaintext = ByteArray(len)
-        val plainLen = cipherPair.receiver.decryptWithAd(null, ciphertext, 0, plaintext, 0, len)
-        return plaintext.copyOf(plainLen)
     }
 
     /**
