@@ -132,3 +132,141 @@ pub async fn write_raw_message(stream: &mut TcpStream, msg: &Message) -> Result<
     stream.flush().await?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_message_type_roundtrip() {
+        let types = [
+            (0x01u8, MessageType::ClipboardSend),
+            (0x02, MessageType::ClipboardAck),
+            (0x03, MessageType::Ping),
+            (0x04, MessageType::Pong),
+            (0x05, MessageType::DeviceInfo),
+            (0x06, MessageType::Error),
+        ];
+        for (byte, expected) in types {
+            let parsed = MessageType::try_from(byte).unwrap();
+            assert_eq!(parsed, expected);
+            assert_eq!(parsed as u8, byte);
+        }
+    }
+
+    #[test]
+    fn test_message_type_unknown_returns_error() {
+        assert!(MessageType::try_from(0x00).is_err());
+        assert!(MessageType::try_from(0x07).is_err());
+        assert!(MessageType::try_from(0xFF).is_err());
+    }
+
+    #[test]
+    fn test_clipboard_send_encode_decode() {
+        let msg = Message::clipboard_send("hello world");
+        let encoded = msg.encode();
+
+        assert_eq!(encoded[0], 0x01);
+        let len = u32::from_be_bytes([encoded[1], encoded[2], encoded[3], encoded[4]]);
+        assert_eq!(len, 11);
+
+        let decoded = Message::decode(&encoded).unwrap();
+        assert_eq!(decoded.msg_type, MessageType::ClipboardSend);
+        assert_eq!(decoded.payload_text().unwrap(), "hello world");
+    }
+
+    #[test]
+    fn test_empty_payload_messages() {
+        for msg in [Message::clipboard_ack(), Message::ping(), Message::pong()] {
+            let encoded = msg.encode();
+            let len = u32::from_be_bytes([encoded[1], encoded[2], encoded[3], encoded[4]]);
+            assert_eq!(len, 0);
+            assert_eq!(encoded.len(), 5);
+
+            let decoded = Message::decode(&encoded).unwrap();
+            assert_eq!(decoded.msg_type, msg.msg_type);
+            assert!(decoded.payload.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_device_info_json() {
+        let msg = Message::device_info("My Mac");
+        let decoded = Message::decode(&msg.encode()).unwrap();
+        assert_eq!(decoded.msg_type, MessageType::DeviceInfo);
+
+        let text = decoded.payload_text().unwrap();
+        let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(json["name"], "My Mac");
+    }
+
+    #[test]
+    fn test_error_message() {
+        let msg = Message::error("something went wrong");
+        let decoded = Message::decode(&msg.encode()).unwrap();
+        assert_eq!(decoded.msg_type, MessageType::Error);
+        assert_eq!(decoded.payload_text().unwrap(), "something went wrong");
+    }
+
+    #[test]
+    fn test_unicode_payload() {
+        let text = "Hello \u{1F44B} world \u{1F30D}";
+        let msg = Message::clipboard_send(text);
+        let decoded = Message::decode(&msg.encode()).unwrap();
+        assert_eq!(decoded.payload_text().unwrap(), text);
+    }
+
+    #[test]
+    fn test_large_payload() {
+        let text = "A".repeat(10_000);
+        let msg = Message::clipboard_send(&text);
+        let encoded = msg.encode();
+        assert_eq!(encoded.len(), 5 + 10_000);
+        let decoded = Message::decode(&encoded).unwrap();
+        assert_eq!(decoded.payload_text().unwrap(), text);
+    }
+
+    #[test]
+    fn test_decode_too_short() {
+        assert!(Message::decode(&[]).is_err());
+        assert!(Message::decode(&[0x01]).is_err());
+        assert!(Message::decode(&[0x01, 0, 0, 0]).is_err());
+    }
+
+    #[test]
+    fn test_decode_truncated_payload() {
+        // Header says 10 bytes payload but only 3 provided
+        let data = [0x01, 0, 0, 0, 10, 1, 2, 3];
+        assert!(Message::decode(&data).is_err());
+    }
+
+    #[test]
+    fn test_decode_unknown_type() {
+        let data = [0xFF, 0, 0, 0, 0];
+        assert!(Message::decode(&data).is_err());
+    }
+
+    #[test]
+    fn test_encode_decode_roundtrip_all_types() {
+        let messages = vec![
+            Message::clipboard_send("test data"),
+            Message::clipboard_ack(),
+            Message::ping(),
+            Message::pong(),
+            Message::device_info("test-device"),
+            Message::error("test error"),
+        ];
+        for original in messages {
+            let encoded = original.encode();
+            let decoded = Message::decode(&encoded).unwrap();
+            assert_eq!(decoded.msg_type, original.msg_type);
+            assert_eq!(decoded.payload, original.payload);
+        }
+    }
+
+    #[test]
+    fn test_handshake_type_constants() {
+        assert_eq!(HANDSHAKE_PAIRING, 0x00);
+        assert_eq!(HANDSHAKE_PAIRED, 0x01);
+    }
+}

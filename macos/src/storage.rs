@@ -118,3 +118,105 @@ impl DeviceStore {
         Ok(removed)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn test_store() -> (TempDir, DeviceStore) {
+        let dir = TempDir::new().unwrap();
+        let store = DeviceStore::new(dir.path().to_path_buf()).unwrap();
+        (dir, store)
+    }
+
+    #[test]
+    fn test_identity_save_and_load() {
+        let (_dir, store) = test_store();
+
+        // No identity initially
+        assert!(store.load_identity().unwrap().is_none());
+
+        let identity = Identity {
+            private_key: vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+            public_key: vec![0xAA, 0xBB, 0xCC, 0xDD],
+        };
+        store.save_identity(&identity).unwrap();
+
+        let loaded = store.load_identity().unwrap().unwrap();
+        assert_eq!(loaded.private_key, identity.private_key);
+        assert_eq!(loaded.public_key, identity.public_key);
+    }
+
+    #[test]
+    fn test_paired_device_crud() {
+        let (_dir, store) = test_store();
+
+        // Empty initially
+        let devices = store.list_paired_devices().unwrap();
+        assert!(devices.is_empty());
+
+        // Save a device
+        let key = vec![0x01, 0x02, 0x03, 0x04];
+        store.save_paired_device("phone-1", &key).unwrap();
+
+        // Find by key
+        let found = store.find_device_by_key(&key).unwrap();
+        assert_eq!(found, Some("phone-1".to_string()));
+
+        // Not found with different key
+        let not_found = store.find_device_by_key(&[0xFF]).unwrap();
+        assert!(not_found.is_none());
+
+        // List devices
+        let devices = store.list_paired_devices().unwrap();
+        assert_eq!(devices.len(), 1);
+
+        // Remove device
+        assert!(store.remove_paired_device("phone-1").unwrap());
+        assert!(!store.remove_paired_device("phone-1").unwrap()); // already removed
+
+        let devices = store.list_paired_devices().unwrap();
+        assert!(devices.is_empty());
+    }
+
+    #[test]
+    fn test_multiple_paired_devices() {
+        let (_dir, store) = test_store();
+
+        store.save_paired_device("phone", &[1, 2, 3]).unwrap();
+        store.save_paired_device("tablet", &[4, 5, 6]).unwrap();
+        store.save_paired_device("laptop", &[7, 8, 9]).unwrap();
+
+        let devices = store.list_paired_devices().unwrap();
+        assert_eq!(devices.len(), 3);
+
+        assert_eq!(
+            store.find_device_by_key(&[4, 5, 6]).unwrap(),
+            Some("tablet".to_string())
+        );
+
+        store.remove_paired_device("tablet").unwrap();
+        assert!(store.find_device_by_key(&[4, 5, 6]).unwrap().is_none());
+        assert_eq!(store.list_paired_devices().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_save_device_overwrites_existing() {
+        let (_dir, store) = test_store();
+
+        store.save_paired_device("phone", &[1, 2, 3]).unwrap();
+        store.save_paired_device("phone", &[4, 5, 6]).unwrap();
+
+        let devices = store.list_paired_devices().unwrap();
+        assert_eq!(devices.len(), 1);
+
+        // Should find with new key
+        assert_eq!(
+            store.find_device_by_key(&[4, 5, 6]).unwrap(),
+            Some("phone".to_string())
+        );
+        // Should NOT find with old key
+        assert!(store.find_device_by_key(&[1, 2, 3]).unwrap().is_none());
+    }
+}

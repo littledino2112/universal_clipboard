@@ -240,3 +240,220 @@ pub async fn accept_connection(
         _ => bail!("unknown handshake type: 0x{:02x}", handshake_type),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_derive_psk_deterministic() {
+        let psk1 = derive_psk_from_code("123456");
+        let psk2 = derive_psk_from_code("123456");
+        assert_eq!(psk1, psk2);
+    }
+
+    #[test]
+    fn test_derive_psk_different_codes_differ() {
+        let psk1 = derive_psk_from_code("123456");
+        let psk2 = derive_psk_from_code("654321");
+        assert_ne!(psk1, psk2);
+    }
+
+    #[test]
+    fn test_derive_psk_length() {
+        let psk = derive_psk_from_code("999999");
+        assert_eq!(psk.len(), 32);
+    }
+
+    #[test]
+    fn test_derive_psk_not_trivial() {
+        let psk = derive_psk_from_code("000000");
+        // Should not be all zeros (HKDF output is pseudorandom)
+        assert_ne!(psk, [0u8; 32]);
+    }
+
+    #[test]
+    fn test_generate_pairing_code_format() {
+        for _ in 0..100 {
+            let code = generate_pairing_code();
+            assert_eq!(code.len(), 6);
+            assert!(code.chars().all(|c| c.is_ascii_digit()));
+            let num: u32 = code.parse().unwrap();
+            assert!(num >= 100_000);
+            assert!(num < 1_000_000);
+        }
+    }
+
+    #[test]
+    fn test_generate_pairing_code_varies() {
+        // Generate several codes and check they're not all the same
+        let codes: std::collections::HashSet<String> =
+            (0..20).map(|_| generate_pairing_code()).collect();
+        assert!(codes.len() > 1, "pairing codes should vary");
+    }
+
+    #[test]
+    fn test_derive_psk_known_vector() {
+        // This test vector must match the Kotlin test to ensure cross-platform compatibility.
+        let psk = derive_psk_from_code("123456");
+        let hex = hex::encode(&psk);
+        eprintln!("PSK for '123456': {}", hex);
+        // If this changes, update the Kotlin test too!
+        assert_eq!(
+            hex,
+            "2ae98c1bffa1161744024a43e105264640b44c822603030f1af425965079c5c5"
+        );
+    }
+
+    #[test]
+    fn test_identity_public_key_hex() {
+        let identity = Identity {
+            private_key: vec![0; 32],
+            public_key: vec![0xAB, 0xCD, 0xEF, 0x01],
+        };
+        assert_eq!(identity.public_key_hex(), "abcdef01");
+    }
+
+    #[test]
+    fn test_noise_xxpsk0_handshake_in_memory() {
+        // Simulate a complete XXpsk0 handshake between initiator and responder
+        // without TCP, using direct buffer exchange.
+        let code = "123456";
+        let psk = derive_psk_from_code(code);
+
+        let pattern: snow::params::NoiseParams = NOISE_PATTERN_PAIRING.parse().unwrap();
+
+        // Generate keypairs
+        let init_builder = Builder::new(pattern.clone());
+        let init_kp = init_builder.generate_keypair().unwrap();
+        let resp_builder = Builder::new(pattern.clone());
+        let resp_kp = resp_builder.generate_keypair().unwrap();
+
+        // Build handshake states
+        let mut initiator = Builder::new(pattern.clone())
+            .local_private_key(&init_kp.private)
+            .psk(0, &psk)
+            .build_initiator()
+            .unwrap();
+        let mut responder = Builder::new(pattern)
+            .local_private_key(&resp_kp.private)
+            .psk(0, &psk)
+            .build_responder()
+            .unwrap();
+
+        let mut buf1 = vec![0u8; 65535];
+        let mut buf2 = vec![0u8; 65535];
+
+        // Message 1: initiator -> responder (-> psk, e)
+        let len1 = initiator.write_message(&[], &mut buf1).unwrap();
+        responder.read_message(&buf1[..len1], &mut buf2).unwrap();
+
+        // Message 2: responder -> initiator (<- e, ee, s, es)
+        let len2 = responder.write_message(&[], &mut buf1).unwrap();
+        initiator.read_message(&buf1[..len2], &mut buf2).unwrap();
+
+        // Message 3: initiator -> responder (-> s, se)
+        let len3 = initiator.write_message(&[], &mut buf1).unwrap();
+        responder.read_message(&buf1[..len3], &mut buf2).unwrap();
+
+        // Both should have each other's static keys
+        assert_eq!(
+            initiator.get_remote_static().unwrap(),
+            &resp_kp.public[..]
+        );
+        assert_eq!(
+            responder.get_remote_static().unwrap(),
+            &init_kp.public[..]
+        );
+
+        // Convert to transport mode and exchange messages
+        let mut init_transport = initiator.into_transport_mode().unwrap();
+        let mut resp_transport = responder.into_transport_mode().unwrap();
+
+        let plaintext = b"Hello from initiator!";
+        let len = init_transport.write_message(plaintext, &mut buf1).unwrap();
+        let decrypted_len = resp_transport.read_message(&buf1[..len], &mut buf2).unwrap();
+        assert_eq!(&buf2[..decrypted_len], plaintext);
+
+        let response = b"Hello from responder!";
+        let len = resp_transport.write_message(response, &mut buf1).unwrap();
+        let decrypted_len = init_transport.read_message(&buf1[..len], &mut buf2).unwrap();
+        assert_eq!(&buf2[..decrypted_len], response);
+    }
+
+    #[test]
+    fn test_noise_kk_handshake_in_memory() {
+        // Simulate a complete KK handshake (both keys pre-known)
+        let pattern: snow::params::NoiseParams = NOISE_PATTERN_PAIRED.parse().unwrap();
+
+        let init_builder = Builder::new(pattern.clone());
+        let init_kp = init_builder.generate_keypair().unwrap();
+        let resp_builder = Builder::new(pattern.clone());
+        let resp_kp = resp_builder.generate_keypair().unwrap();
+
+        let mut initiator = Builder::new(pattern.clone())
+            .local_private_key(&init_kp.private)
+            .remote_public_key(&resp_kp.public)
+            .build_initiator()
+            .unwrap();
+        let mut responder = Builder::new(pattern)
+            .local_private_key(&resp_kp.private)
+            .remote_public_key(&init_kp.public)
+            .build_responder()
+            .unwrap();
+
+        let mut buf1 = vec![0u8; 65535];
+        let mut buf2 = vec![0u8; 65535];
+
+        // Message 1: initiator -> responder
+        let len1 = initiator.write_message(&[], &mut buf1).unwrap();
+        responder.read_message(&buf1[..len1], &mut buf2).unwrap();
+
+        // Message 2: responder -> initiator
+        let len2 = responder.write_message(&[], &mut buf1).unwrap();
+        initiator.read_message(&buf1[..len2], &mut buf2).unwrap();
+
+        let mut init_transport = initiator.into_transport_mode().unwrap();
+        let mut resp_transport = responder.into_transport_mode().unwrap();
+
+        // Verify encrypted communication works
+        let msg = b"secure message";
+        let len = init_transport.write_message(msg, &mut buf1).unwrap();
+        let dec_len = resp_transport.read_message(&buf1[..len], &mut buf2).unwrap();
+        assert_eq!(&buf2[..dec_len], msg);
+    }
+
+    #[test]
+    fn test_noise_wrong_psk_fails() {
+        // In XXpsk0, the PSK is mixed in at the start, so a mismatch
+        // causes decryption failure when the responder reads message 1.
+        let pattern: snow::params::NoiseParams = NOISE_PATTERN_PAIRING.parse().unwrap();
+
+        let psk_correct = derive_psk_from_code("123456");
+        let psk_wrong = derive_psk_from_code("999999");
+
+        let init_kp = Builder::new(pattern.clone()).generate_keypair().unwrap();
+        let resp_kp = Builder::new(pattern.clone()).generate_keypair().unwrap();
+
+        let mut initiator = Builder::new(pattern.clone())
+            .local_private_key(&init_kp.private)
+            .psk(0, &psk_correct)
+            .build_initiator()
+            .unwrap();
+        let mut responder = Builder::new(pattern)
+            .local_private_key(&resp_kp.private)
+            .psk(0, &psk_wrong) // WRONG PSK
+            .build_responder()
+            .unwrap();
+
+        let mut buf1 = vec![0u8; 65535];
+        let mut buf2 = vec![0u8; 65535];
+
+        // Message 1: initiator writes with correct PSK
+        let len1 = initiator.write_message(&[], &mut buf1).unwrap();
+
+        // Responder tries to read with wrong PSK — should fail
+        let result = responder.read_message(&buf1[..len1], &mut buf2);
+        assert!(result.is_err(), "wrong PSK should cause handshake failure");
+    }
+}
