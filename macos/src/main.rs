@@ -10,7 +10,10 @@ use clap::{Parser, Subcommand};
 use tokio::net::TcpListener;
 
 #[derive(Parser)]
-#[command(name = "uclip", about = "Universal Clipboard - P2P encrypted clipboard receiver")]
+#[command(
+    name = "uclip",
+    about = "Universal Clipboard - P2P encrypted clipboard receiver"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,

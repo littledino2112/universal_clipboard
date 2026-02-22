@@ -122,10 +122,7 @@ pub async fn read_raw_message(stream: &mut TcpStream) -> Result<Message> {
     }
     let mut payload = vec![0u8; len as usize];
     stream.read_exact(&mut payload).await?;
-    Ok(Message {
-        msg_type,
-        payload,
-    })
+    Ok(Message { msg_type, payload })
 }
 
 /// Write a plaintext protocol message to a TCP stream.
