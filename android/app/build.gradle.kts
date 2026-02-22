@@ -35,7 +35,7 @@ android {
 
 dependencies {
     // Compose
-    implementation(platform("androidx.compose:compose-bom:2024.01.00"))
+    implementation(platform("androidx.compose:compose-bom:2024.02.02"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
@@ -48,8 +48,8 @@ dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
 
-    // Noise Protocol (Java implementation, works in Kotlin)
-    implementation("com.github.rweather:noise-java:1.0.0")
+    // Noise Protocol - vendored from rweather/noise-java (commit 49377b6dfc)
+    // with PSK token pattern support (XXpsk0) added
 
     // mDNS/NSD is built into Android SDK (android.net.nsd)
 
@@ -58,4 +58,7 @@ dependencies {
 
     // JSON
     implementation("org.json:json:20231013")
+
+    // Testing
+    testImplementation("junit:junit:4.13.2")
 }
