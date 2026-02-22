@@ -76,7 +76,13 @@ mv "$TMPFILE" CHANGELOG.md
 
 # Update version in tauri.conf.json
 NEW_VERSION="0.${MAJOR}.${MINOR}"
-sed -i '' "s/\"version\": \".*\"/\"version\": \"${NEW_VERSION}\"/" macos/app/tauri.conf.json
+python3 -c "
+import json, sys
+p = 'macos/app/tauri.conf.json'
+c = json.loads(open(p).read())
+c['version'] = sys.argv[1]
+open(p, 'w').write(json.dumps(c, indent=2) + '\n')
+" "$NEW_VERSION"
 
 # Commit, tag, and push
 git add CHANGELOG.md macos/app/tauri.conf.json
