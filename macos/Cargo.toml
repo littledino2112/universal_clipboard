@@ -1,0 +1,43 @@
+[package]
+name = "uclip"
+version = "0.1.0"
+edition = "2021"
+description = "Universal Clipboard - P2P encrypted clipboard sync receiver"
+
+[dependencies]
+# Noise Protocol Framework
+snow = "0.9"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# mDNS/DNS-SD discovery
+mdns-sd = "0.11"
+
+# Clipboard access
+arboard = "3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Key storage
+directories = "5"
+
+# Crypto utilities (HKDF, random)
+hkdf = "0.12"
+sha2 = "0.10"
+rand = "0.8"
+hex = "0.4"
+base64 = "0.22"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
