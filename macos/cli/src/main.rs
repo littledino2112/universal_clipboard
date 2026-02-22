@@ -1,13 +1,12 @@
-mod clipboard;
-mod crypto;
-mod discovery;
-mod protocol;
-mod server;
-mod storage;
+use std::sync::Arc;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use tokio::net::TcpListener;
+use tokio_util::sync::CancellationToken;
+
+use uclip_core::events::AppState;
+use uclip_core::{crypto, discovery, server, storage};
 
 #[derive(Parser)]
 #[command(
@@ -69,12 +68,21 @@ async fn main() -> Result<()> {
             println!("  to pair. Code changes on each restart.");
             println!("========================================");
 
+            let state = Arc::new(AppState::new(
+                identity,
+                pairing_code,
+                name.clone(),
+                store,
+                port,
+            ));
+            let cancel = CancellationToken::new();
+
             // Start mDNS advertisement
             let _discovery = discovery::DiscoveryServer::new(port, &name)?;
 
             // Start TCP listener
             let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
-            server::run_server(listener, &identity, &pairing_code, &store, &name).await?;
+            server::run_server(listener, state, cancel).await?;
         }
 
         Commands::Status => {

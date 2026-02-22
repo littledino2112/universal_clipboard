@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Universal Clipboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="panel">
+    <header>
+      <div class="status-row">
+        <span class="status-dot" id="statusDot"></span>
+        <span class="status-text" id="statusText">Starting...</span>
+      </div>
+      <div class="device-name" id="deviceName"></div>
+    </header>
+
+    <section class="pairing-section">
+      <div class="section-label">Pairing Code</div>
+      <div class="pairing-code" id="pairingCode">------</div>
+      <div class="pairing-hint">Enter this code on your Android device</div>
+    </section>
+
+    <section class="connection-section" id="connectionSection" style="display:none">
+      <div class="section-label">Connected</div>
+      <div class="connected-device" id="connectedDevice"></div>
+    </section>
+
+    <section class="devices-section">
+      <div class="section-label">Paired Devices</div>
+      <div class="devices-list" id="devicesList">
+        <div class="empty-state">No paired devices</div>
+      </div>
+    </section>
+
+    <footer>
+      <span class="port-info" id="portInfo"></span>
+    </footer>
+  </div>
+  <script src="main.js"></script>
+</body>
+</html>

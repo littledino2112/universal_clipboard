@@ -1,0 +1,26 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicerdicer/tauri-schema-v2/main/tauri.conf.schema.json",
+  "productName": "Universal Clipboard",
+  "version": "0.1.0",
+  "identifier": "com.uclip.app",
+  "build": {
+    "frontendDist": "./ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon.png"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "13.0"
+    }
+  }
+}
