@@ -135,6 +135,68 @@ uclip unpair <device-name>
 uclip reset
 ```
 
+## Auto-Start on macOS (launchd)
+
+To run the receiver automatically on login:
+
+1. Copy the binary to a permanent location:
+
+```bash
+cp macos/target/release/uclip /usr/local/bin/uclip
+```
+
+2. Create a LaunchAgent plist:
+
+```bash
+mkdir -p ~/Library/LaunchAgents
+cat > ~/Library/LaunchAgents/com.universalclipboard.uclip.plist << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.universalclipboard.uclip</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/uclip</string>
+        <string>listen</string>
+        <string>--name</string>
+        <string>My MacBook</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/uclip.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/uclip.err</string>
+</dict>
+</plist>
+EOF
+```
+
+3. Load the service:
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.universalclipboard.uclip.plist
+```
+
+4. Manage the service:
+
+```bash
+# Stop
+launchctl unload ~/Library/LaunchAgents/com.universalclipboard.uclip.plist
+
+# Restart (unload + load)
+launchctl unload ~/Library/LaunchAgents/com.universalclipboard.uclip.plist
+launchctl load ~/Library/LaunchAgents/com.universalclipboard.uclip.plist
+
+# Check status
+launchctl list | grep uclip
+```
+
 ## Requirements
 
 - **Dev environment**: [Determinate Nix](https://github.com/DeterminateSystems/nix-installer) (recommended) or install manually:

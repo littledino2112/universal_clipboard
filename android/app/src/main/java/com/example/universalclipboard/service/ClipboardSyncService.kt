@@ -27,8 +27,9 @@ class ClipboardSyncService : Service() {
         private const val CHANNEL_ID = "clipboard_sync"
         private const val NOTIFICATION_ID = 1
         private const val ACTION_DISCONNECT = "com.example.universalclipboard.DISCONNECT"
-        private const val INITIAL_BACKOFF_MS = 1_000L
+        private const val INITIAL_BACKOFF_MS = 3_000L
         private const val MAX_BACKOFF_MS = 60_000L
+        private const val MAX_RECONNECT_ATTEMPTS = 10
     }
 
     inner class LocalBinder : Binder() {
@@ -46,6 +47,7 @@ class ClipboardSyncService : Service() {
     private var reconnectJob: Job? = null
     private var lastConnectedDevice: PairedDevice? = null
     private var autoReconnectEnabled = false
+    private var reconnectAttempts = 0
 
     override fun onCreate() {
         super.onCreate()
@@ -77,12 +79,14 @@ class ClipboardSyncService : Service() {
 
     fun connectWithPairing(host: String, port: Int, pairingCode: String) {
         autoReconnectEnabled = true
+        reconnectAttempts = 0
         connectionManager.connectWithPairing(host, port, pairingCode)
     }
 
     fun reconnectToDevice(device: PairedDevice) {
         if (device.host == null || device.port == null) return
         autoReconnectEnabled = true
+        reconnectAttempts = 0
         lastConnectedDevice = device
         connectionManager.reconnect(device.host, device.port, device.name, device.publicKey)
     }
@@ -115,6 +119,7 @@ class ClipboardSyncService : Service() {
                 when (state) {
                     is ConnectionState.Connected -> {
                         reconnectJob?.cancel()
+                        reconnectAttempts = 0
                         // Update last connected device from paired devices list
                         val paired = identityManager.getPairedDevices()
                             .find { it.name == state.deviceName }
@@ -124,15 +129,22 @@ class ClipboardSyncService : Service() {
                         updateNotification("Connected to ${state.deviceName}")
                     }
                     is ConnectionState.Connecting -> {
-                        updateNotification("Connecting...")
+                        // Don't update notification during reconnect cycles to avoid spam
+                        if (reconnectJob?.isActive != true) {
+                            updateNotification("Connecting...")
+                        }
                     }
                     is ConnectionState.Error -> {
-                        updateNotification("Error: ${state.message}")
-                        scheduleReconnect()
+                        // Only schedule reconnect if one isn't already running
+                        if (reconnectJob?.isActive != true) {
+                            scheduleReconnect()
+                        }
                     }
                     ConnectionState.Disconnected -> {
-                        updateNotification("Disconnected")
-                        scheduleReconnect()
+                        // Only schedule reconnect if one isn't already running
+                        if (reconnectJob?.isActive != true) {
+                            scheduleReconnect()
+                        }
                     }
                 }
             }
@@ -147,14 +159,22 @@ class ClipboardSyncService : Service() {
         reconnectJob?.cancel()
         reconnectJob = serviceScope.launch {
             var backoff = INITIAL_BACKOFF_MS
+            updateNotification("Connection lost — reconnecting...")
             while (isActive && autoReconnectEnabled) {
                 delay(backoff)
                 val currentState = connectionManager.state.value
-                if (currentState is ConnectionState.Connected || currentState is ConnectionState.Connecting) {
+                if (currentState is ConnectionState.Connected) {
                     break
                 }
-                Log.i(TAG, "Auto-reconnecting to ${device.name} (backoff=${backoff}ms)")
-                updateNotification("Reconnecting to ${device.name}...")
+                reconnectAttempts++
+                if (reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
+                    Log.i(TAG, "Max reconnect attempts reached, giving up")
+                    autoReconnectEnabled = false
+                    updateNotification("Disconnected — tap to reconnect")
+                    break
+                }
+                Log.i(TAG, "Auto-reconnecting to ${device.name} (attempt $reconnectAttempts, backoff=${backoff}ms)")
+                updateNotification("Reconnecting to ${device.name} ($reconnectAttempts/$MAX_RECONNECT_ATTEMPTS)...")
                 connectionManager.reconnect(device.host, device.port, device.name, device.publicKey)
                 backoff = (backoff * 2).coerceAtMost(MAX_BACKOFF_MS)
                 // Wait for the connection attempt to resolve
