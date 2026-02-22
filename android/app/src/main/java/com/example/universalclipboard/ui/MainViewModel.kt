@@ -1,12 +1,20 @@
 package com.example.universalclipboard.ui
 
 import android.app.Application
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
+import android.os.IBinder
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.universalclipboard.crypto.IdentityManager
+import com.example.universalclipboard.crypto.PairedDevice
 import com.example.universalclipboard.data.ClipboardItem
 import com.example.universalclipboard.network.*
+import com.example.universalclipboard.service.ClipboardSyncService
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -17,7 +25,7 @@ data class MainUiState(
     val clipboardItems: List<ClipboardItem> = emptyList(),
     val connectionState: ConnectionState = ConnectionState.Disconnected,
     val discoveredDevices: List<DiscoveredDevice> = emptyList(),
-    val pairedDevices: List<Pair<String, ByteArray>> = emptyList(),
+    val pairedDevices: List<PairedDevice> = emptyList(),
     val pairingCode: String = "",
     val manualIp: String = "",
     val manualPort: String = "9876",
@@ -31,39 +39,75 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private val identityManager = IdentityManager(application)
-    private val connectionManager = ConnectionManager(identityManager)
-    private val discovery = DeviceDiscovery(application)
+
+    private var service: ClipboardSyncService? = null
+    private var connectionStateJob: Job? = null
+    private var discoveryJob: Job? = null
 
     private val _uiState = MutableStateFlow(MainUiState())
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
 
+    private val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            val localBinder = binder as ClipboardSyncService.LocalBinder
+            service = localBinder.getService()
+            observeService()
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            connectionStateJob?.cancel()
+            discoveryJob?.cancel()
+            service = null
+        }
+    }
+
     init {
-        // Observe connection state
-        viewModelScope.launch {
-            connectionManager.state.collect { state ->
+        // Load paired devices
+        refreshPairedDevices()
+        // Bind to service
+        bindService()
+    }
+
+    private fun bindService() {
+        val context = getApplication<Application>()
+        val intent = Intent(context, ClipboardSyncService::class.java)
+        context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+    }
+
+    private fun observeService() {
+        val svc = service ?: return
+
+        connectionStateJob?.cancel()
+        connectionStateJob = viewModelScope.launch {
+            svc.connectionManager.state.collect { state ->
                 _uiState.update { it.copy(connectionState = state) }
+                if (state is ConnectionState.Connected) {
+                    refreshPairedDevices()
+                }
             }
         }
 
-        // Observe discovered devices
-        viewModelScope.launch {
-            discovery.devices.collect { devices ->
+        discoveryJob?.cancel()
+        discoveryJob = viewModelScope.launch {
+            svc.discovery.devices.collect { devices ->
                 _uiState.update { it.copy(discoveredDevices = devices) }
             }
         }
-
-        // Load paired devices
-        refreshPairedDevices()
     }
 
-    /**
-     * User pastes text into the app.
-     */
+    private fun ensureServiceStarted() {
+        val context = getApplication<Application>()
+        val intent = Intent(context, ClipboardSyncService::class.java)
+        context.startForegroundService(intent)
+        if (service == null) {
+            context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        }
+    }
+
     fun addClipboardItem(text: String) {
         if (text.isBlank()) return
         _uiState.update { state ->
             val items = state.clipboardItems.toMutableList()
-            // Add to front, cap at MAX_CLIPBOARD_ITEMS
             items.add(0, ClipboardItem(text = text))
             if (items.size > MAX_CLIPBOARD_ITEMS) {
                 items.removeAt(items.lastIndex)
@@ -72,22 +116,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /**
-     * Remove a clipboard item.
-     */
     fun removeClipboardItem(id: Long) {
         _uiState.update { state ->
             state.copy(clipboardItems = state.clipboardItems.filter { it.id != id })
         }
     }
 
-    /**
-     * Send a clipboard item to the connected receiver.
-     */
     fun sendClipboardItem(id: Long) {
         val item = _uiState.value.clipboardItems.find { it.id == id } ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            val success = connectionManager.sendClipboardText(item.text)
+            val success = service?.connectionManager?.sendClipboardText(item.text) ?: false
             if (success) {
                 _uiState.update { state ->
                     state.copy(
@@ -105,44 +143,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /**
-     * Update the pairing code input.
-     */
     fun updatePairingCode(code: String) {
         if (code.length <= 6 && code.all { it.isDigit() }) {
             _uiState.update { it.copy(pairingCode = code) }
         }
     }
 
-    /**
-     * Update manual IP input.
-     */
     fun updateManualIp(ip: String) {
         _uiState.update { it.copy(manualIp = ip) }
     }
 
-    /**
-     * Update manual port input.
-     */
     fun updateManualPort(port: String) {
         _uiState.update { it.copy(manualPort = port) }
     }
 
-    /**
-     * Connect to a discovered device with pairing code.
-     */
     fun pairWithDevice(device: DiscoveredDevice) {
         val code = _uiState.value.pairingCode
         if (code.length != 6) {
             _uiState.update { it.copy(snackbarMessage = "Enter the 6-digit code from the receiver") }
             return
         }
-        connectionManager.connectWithPairing(device.host, device.port, code)
+        ensureServiceStarted()
+        service?.connectWithPairing(device.host, device.port, code)
     }
 
-    /**
-     * Connect to a manual IP with pairing code.
-     */
     fun pairWithManualAddress() {
         val code = _uiState.value.pairingCode
         val ip = _uiState.value.manualIp
@@ -156,37 +180,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.update { it.copy(snackbarMessage = "Enter the receiver's IP address") }
             return
         }
-        connectionManager.connectWithPairing(ip, port, code)
+        ensureServiceStarted()
+        service?.connectWithPairing(ip, port, code)
     }
 
-    /**
-     * Reconnect to a previously paired device.
-     */
-    fun reconnectToPairedDevice(name: String, host: String, port: Int) {
-        val devices = identityManager.getPairedDevices()
-        val key = devices[name] ?: return
-        connectionManager.reconnect(host, port, name, key)
+    fun reconnectToPairedDevice(device: PairedDevice) {
+        if (device.host == null || device.port == null) return
+        ensureServiceStarted()
+        service?.reconnectToDevice(device)
     }
 
-    /**
-     * Disconnect from the current device.
-     */
+    fun removePairedDevice(name: String) {
+        identityManager.removePairedDevice(name)
+        refreshPairedDevices()
+    }
+
     fun disconnect() {
-        connectionManager.disconnect()
+        service?.userDisconnect()
     }
 
-    /**
-     * Start mDNS discovery.
-     */
     fun startDiscovery() {
-        discovery.startDiscovery()
+        service?.discovery?.startDiscovery()
     }
 
-    /**
-     * Stop mDNS discovery.
-     */
     fun stopDiscovery() {
-        discovery.stopDiscovery()
+        service?.discovery?.stopDiscovery()
     }
 
     fun clearSnackbar() {
@@ -195,14 +213,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun refreshPairedDevices() {
         val devices = identityManager.getPairedDevices()
-        _uiState.update {
-            it.copy(pairedDevices = devices.map { (name, key) -> name to key })
-        }
+        _uiState.update { it.copy(pairedDevices = devices) }
     }
 
     override fun onCleared() {
         super.onCleared()
-        discovery.stopDiscovery()
-        connectionManager.disconnect()
+        service?.discovery?.stopDiscovery()
+        try {
+            getApplication<Application>().unbindService(serviceConnection)
+        } catch (_: Exception) { }
     }
 }

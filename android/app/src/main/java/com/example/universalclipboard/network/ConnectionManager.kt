@@ -53,7 +53,7 @@ class ConnectionManager(
                 )
 
                 val deviceName = "receiver-${remoteKey.take(4).joinToString("") { "%02x".format(it) }}"
-                identityManager.savePairedDevice(deviceName, remoteKey)
+                identityManager.savePairedDevice(deviceName, remoteKey, host, port)
 
                 val conn = NoiseTransport(socket, cipherPair)
                 transport = conn
@@ -67,8 +67,8 @@ class ConnectionManager(
                     } catch (_: Exception) { deviceName }
                 } else deviceName
 
-                // Update stored name
-                identityManager.savePairedDevice(remoteName, remoteKey)
+                // Update stored name with host/port
+                identityManager.savePairedDevice(remoteName, remoteKey, host, port)
 
                 _state.value = ConnectionState.Connected(remoteName)
                 startKeepalive()
@@ -103,6 +103,9 @@ class ConnectionManager(
                 // Exchange device info
                 conn.sendMessage(ProtocolMessage.deviceInfo("Android"))
                 val infoMsg = conn.recvMessage()
+
+                // Keep address fresh
+                identityManager.savePairedDevice(deviceName, remotePublicKey, host, port)
 
                 _state.value = ConnectionState.Connected(deviceName)
                 startKeepalive()
@@ -139,6 +142,11 @@ class ConnectionManager(
         transport?.close()
         transport = null
         _state.value = ConnectionState.Disconnected
+    }
+
+    fun destroy() {
+        disconnect()
+        scope.cancel()
     }
 
     private fun startKeepalive() {
