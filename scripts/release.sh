@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Guard: must be on main branch
+CURRENT_BRANCH=$(git branch --show-current)
+if [ "$CURRENT_BRANCH" != "main" ]; then
+  echo "Error: release must be run from the main branch (currently on '$CURRENT_BRANCH')"
+  exit 1
+fi
+
 # Determine last release tag
 LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
 
