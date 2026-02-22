@@ -1,3 +1,11 @@
+## v0.2.2 (2026-02-22)
+
+### Fixes
+- fix: use python3 instead of sed for tauri version bump
+
+### Other
+- chore: bump tauri.conf.json version during release
+
 ## v0.2.1 (2026-02-22)
 
 ### Fixes
