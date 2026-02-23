@@ -30,3 +30,7 @@ result-*
 .vscode/
 *.swp
 *.swo
+
+# BMAD
+_bmad/
+.claude/commands/bmad-*
