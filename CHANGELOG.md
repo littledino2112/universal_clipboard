@@ -1,3 +1,11 @@
+## v0.4.0 (2026-02-23)
+
+### Features
+- feat(android): add Reconnecting state with disconnect UX (#13)
+
+### Other
+- chore(git): add bmad and claude commands to gitignore
+
 ## v0.3.2 (2026-02-23)
 
 ### Fixes
