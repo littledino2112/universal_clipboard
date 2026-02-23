@@ -27,9 +27,8 @@ class ClipboardSyncService : Service() {
         private const val CHANNEL_ID = "clipboard_sync"
         private const val NOTIFICATION_ID = 1
         private const val ACTION_DISCONNECT = "com.example.universalclipboard.DISCONNECT"
-        private const val INITIAL_BACKOFF_MS = 3_000L
-        private const val MAX_BACKOFF_MS = 60_000L
-        private const val MAX_RECONNECT_ATTEMPTS = 10
+        private const val RECONNECT_INTERVAL_MS = 3_000L
+        internal const val MAX_RECONNECT_ATTEMPTS = 3
     }
 
     inner class LocalBinder : Binder() {
@@ -128,6 +127,9 @@ class ClipboardSyncService : Service() {
                         }
                         updateNotification("Connected to ${state.deviceName}")
                     }
+                    is ConnectionState.Reconnecting -> {
+                        updateNotification("Reconnecting to ${state.deviceName}...")
+                    }
                     is ConnectionState.Connecting -> {
                         // Don't update notification during reconnect cycles to avoid spam
                         if (reconnectJob?.isActive != true) {
@@ -158,27 +160,25 @@ class ClipboardSyncService : Service() {
 
         reconnectJob?.cancel()
         reconnectJob = serviceScope.launch {
-            var backoff = INITIAL_BACKOFF_MS
             updateNotification("Connection lost — reconnecting...")
             while (isActive && autoReconnectEnabled) {
-                delay(backoff)
+                delay(RECONNECT_INTERVAL_MS)
                 val currentState = connectionManager.state.value
                 if (currentState is ConnectionState.Connected) {
                     break
                 }
                 reconnectAttempts++
-                if (reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
+                if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
                     Log.i(TAG, "Max reconnect attempts reached, giving up")
                     autoReconnectEnabled = false
+                    connectionManager.disconnect()
                     updateNotification("Disconnected — tap to reconnect")
                     break
                 }
-                Log.i(TAG, "Auto-reconnecting to ${device.name} (attempt $reconnectAttempts, backoff=${backoff}ms)")
-                updateNotification("Reconnecting to ${device.name} ($reconnectAttempts/$MAX_RECONNECT_ATTEMPTS)...")
-                connectionManager.reconnect(device.host, device.port, device.name, device.publicKey)
-                backoff = (backoff * 2).coerceAtMost(MAX_BACKOFF_MS)
-                // Wait for the connection attempt to resolve
-                delay(5_000L)
+                Log.i(TAG, "Auto-reconnecting to ${device.name} (attempt $reconnectAttempts)")
+                connectionManager.reconnect(device.host, device.port, device.name, device.publicKey, isReconnecting = true)
+                // Wait for the connection attempt to resolve before next iteration
+                delay(RECONNECT_INTERVAL_MS)
             }
         }
     }

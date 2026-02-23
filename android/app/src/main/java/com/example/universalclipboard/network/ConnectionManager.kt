@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicReference
 sealed class ConnectionState {
     data object Disconnected : ConnectionState()
     data object Connecting : ConnectionState()
+    data class Reconnecting(val deviceName: String) : ConnectionState()
     data class Connected(val deviceName: String) : ConnectionState()
     data class Error(val message: String) : ConnectionState()
 }
@@ -89,9 +90,9 @@ class ConnectionManager(
     /**
      * Reconnect to a previously paired device.
      */
-    fun reconnect(host: String, port: Int, deviceName: String, remotePublicKey: ByteArray) {
+    fun reconnect(host: String, port: Int, deviceName: String, remotePublicKey: ByteArray, isReconnecting: Boolean = false) {
         scope.launch {
-            _state.value = ConnectionState.Connecting
+            _state.value = if (isReconnecting) ConnectionState.Reconnecting(deviceName) else ConnectionState.Connecting
             try {
                 val keyPair = identityManager.getOrCreateKeyPair()
                 val socket = Socket(host, port)

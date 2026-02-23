@@ -58,12 +58,14 @@ fun MainScreen(
                     // Connection status indicator
                     val statusColor = when (uiState.connectionState) {
                         is ConnectionState.Connected -> MaterialTheme.colorScheme.primary
-                        is ConnectionState.Connecting -> MaterialTheme.colorScheme.tertiary
+                        is ConnectionState.Connecting,
+                        is ConnectionState.Reconnecting -> MaterialTheme.colorScheme.tertiary
                         else -> MaterialTheme.colorScheme.outline
                     }
                     val statusText = when (val state = uiState.connectionState) {
                         is ConnectionState.Connected -> state.deviceName
                         is ConnectionState.Connecting -> "Connecting..."
+                        is ConnectionState.Reconnecting -> "Reconnecting..."
                         is ConnectionState.Error -> "Error"
                         ConnectionState.Disconnected -> "Disconnected"
                     }
@@ -179,6 +181,24 @@ private fun ConnectionSection(
                         uiState.connectionState.deviceName,
                         style = MaterialTheme.typography.titleSmall
                     )
+                }
+                OutlinedButton(onClick = onDisconnect) {
+                    Text("Disconnect")
+                }
+            }
+        }
+        is ConnectionState.Reconnecting -> {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text("Reconnecting to ${uiState.connectionState.deviceName}...")
                 }
                 OutlinedButton(onClick = onDisconnect) {
                     Text("Disconnect")
