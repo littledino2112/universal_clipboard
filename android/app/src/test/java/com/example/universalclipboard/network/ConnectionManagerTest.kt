@@ -130,6 +130,44 @@ class ConnectionManagerTest {
     }
 
     /**
+     * Verify that Reconnecting state carries the device name.
+     */
+    @Test
+    fun `Reconnecting state carries device name`() {
+        val state = ConnectionState.Reconnecting("MyMac")
+        assertEquals("MyMac", state.deviceName)
+    }
+
+    /**
+     * Verify that Reconnecting is a distinct state from Connecting and Connected.
+     */
+    @Test
+    fun `Reconnecting is distinct from Connecting and Connected`() {
+        val reconnecting: ConnectionState = ConnectionState.Reconnecting("device")
+        val connecting: ConnectionState = ConnectionState.Connecting
+        val connected: ConnectionState = ConnectionState.Connected("device")
+
+        assertNotEquals(reconnecting, connecting)
+        assertNotEquals(reconnecting, connected)
+        assertTrue(reconnecting is ConnectionState.Reconnecting)
+        assertFalse(reconnecting is ConnectionState.Connecting)
+        assertFalse(reconnecting is ConnectionState.Connected)
+    }
+
+    /**
+     * Verify that two Reconnecting states with the same name are equal (data class).
+     */
+    @Test
+    fun `Reconnecting data class equality works`() {
+        val a = ConnectionState.Reconnecting("MacBook")
+        val b = ConnectionState.Reconnecting("MacBook")
+        val c = ConnectionState.Reconnecting("iMac")
+
+        assertEquals(a, b)
+        assertNotEquals(a, c)
+    }
+
+    /**
      * Verify that receiver loop correctly dispatches CLIPBOARD_ACK
      * to the pending deferred while handling other message types.
      */
