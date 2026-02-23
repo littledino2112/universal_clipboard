@@ -1,3 +1,11 @@
+## v0.3.2 (2026-02-23)
+
+### Fixes
+- fix(macos): use template tray icon with bolder lines for menu bar visibility (#12)
+
+### Other
+- chore(beads): init beads in stealth mode
+
 ## v0.3.1 (2026-02-22)
 
 ### Fixes
