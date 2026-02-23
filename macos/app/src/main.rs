@@ -140,6 +140,7 @@ fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
     let _tray = TrayIconBuilder::new()
         .icon(icon)
+        .icon_as_template(true)
         .tooltip("Universal Clipboard")
         .menu(&menu)
         .show_menu_on_left_click(false)
