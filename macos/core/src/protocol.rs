@@ -42,7 +42,6 @@ impl Message {
         Self { msg_type, payload }
     }
 
-    #[allow(dead_code)]
     pub fn clipboard_send(text: &str) -> Self {
         Self::new(MessageType::ClipboardSend, text.as_bytes().to_vec())
     }
