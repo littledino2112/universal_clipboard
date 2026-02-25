@@ -74,8 +74,10 @@ fi
 
 mv "$TMPFILE" CHANGELOG.md
 
-# Update version in tauri.conf.json
+# Update version in all project files
 NEW_VERSION="0.${MAJOR}.${MINOR}"
+
+# tauri.conf.json
 python3 -c "
 import json, sys
 p = 'macos/app/tauri.conf.json'
@@ -84,8 +86,25 @@ c['version'] = sys.argv[1]
 open(p, 'w').write(json.dumps(c, indent=2) + '\n')
 " "$NEW_VERSION"
 
+# Cargo.toml files (core, cli, app)
+for toml in macos/core/Cargo.toml macos/cli/Cargo.toml macos/app/Cargo.toml; do
+  sed -i '' "s/^version = \".*\"/version = \"$NEW_VERSION\"/" "$toml"
+done
+
+# Regenerate Cargo.lock to match updated Cargo.toml versions
+(cd macos && cargo update --workspace)
+
+# Android build.gradle.kts — bump versionName and increment versionCode
+sed -i '' "s/versionName = \".*\"/versionName = \"$NEW_VERSION\"/" android/app/build.gradle.kts
+OLD_CODE=$(grep -oE 'versionCode = [0-9]+' android/app/build.gradle.kts | grep -oE '[0-9]+')
+NEW_CODE=$((OLD_CODE + 1))
+sed -i '' "s/versionCode = $OLD_CODE/versionCode = $NEW_CODE/" android/app/build.gradle.kts
+
 # Commit, tag, and push
-git add CHANGELOG.md macos/app/tauri.conf.json
+git add CHANGELOG.md macos/app/tauri.conf.json \
+  macos/core/Cargo.toml macos/cli/Cargo.toml macos/app/Cargo.toml \
+  macos/Cargo.lock \
+  android/app/build.gradle.kts
 git commit -m "chore: release $NEW_TAG"
 git tag "$NEW_TAG"
 git push origin main "$NEW_TAG"
