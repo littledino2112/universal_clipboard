@@ -2,6 +2,7 @@ use anyhow::Result;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
+use tokio::sync::mpsc;
 use tokio::time;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
@@ -79,6 +80,31 @@ async fn handle_session(
     state: &AppState,
     cancel: &CancellationToken,
 ) -> Result<()> {
+    // Create outbound message channel
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    {
+        let mut session_tx = state.session_tx.write().await;
+        *session_tx = Some(tx);
+    }
+
+    let result = handle_session_loop(&mut transport, &mut rx, state, cancel).await;
+
+    // Cleanup: clear the session sender
+    {
+        let mut session_tx = state.session_tx.write().await;
+        *session_tx = None;
+    }
+
+    result
+}
+
+/// Inner message loop for an authenticated session.
+async fn handle_session_loop(
+    transport: &mut NoiseTransport,
+    rx: &mut mpsc::UnboundedReceiver<Message>,
+    state: &AppState,
+    cancel: &CancellationToken,
+) -> Result<()> {
     // Exchange device info
     let info_msg = Message::device_info(&state.device_name);
     transport.send_message(&info_msg).await?;
@@ -100,7 +126,6 @@ async fn handle_session(
                         let text = msg.payload_text()?;
                         let chars = text.len();
                         info!("received clipboard content ({} chars)", chars);
-                        // Write to system clipboard
                         if let Err(e) = clipboard::set_clipboard_text(&text) {
                             error!("failed to set clipboard: {}", e);
                             let err_msg = Message::error(&format!("clipboard error: {}", e));
@@ -109,6 +134,10 @@ async fn handle_session(
                             transport.send_message(&Message::clipboard_ack()).await?;
                             state.emit(ServerEvent::ClipboardReceived { chars });
                         }
+                    }
+                    MessageType::ClipboardAck => {
+                        info!("received clipboard ACK from remote");
+                        state.emit(ServerEvent::ClipboardSent { chars: 0 });
                     }
                     MessageType::Ping => {
                         transport.send_message(&Message::pong()).await?;
@@ -124,6 +153,9 @@ async fn handle_session(
                         warn!("unexpected message type: {:?}", msg.msg_type);
                     }
                 }
+            }
+            Some(outbound_msg) = rx.recv() => {
+                transport.send_message(&outbound_msg).await?;
             }
             _ = time::sleep(keepalive) => {
                 transport.send_message(&Message::ping()).await?;

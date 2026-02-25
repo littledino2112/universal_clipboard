@@ -51,7 +51,7 @@ class ClipboardSyncService : Service() {
     override fun onCreate() {
         super.onCreate()
         identityManager = IdentityManager(this)
-        connectionManager = ConnectionManager(identityManager)
+        connectionManager = ConnectionManager(identityManager, applicationContext)
         discovery = DeviceDiscovery(this)
         createNotificationChannel()
         observeConnectionState()

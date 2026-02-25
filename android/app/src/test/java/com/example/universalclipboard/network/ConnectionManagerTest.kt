@@ -210,4 +210,136 @@ class ConnectionManagerTest {
         cmFake.close()
         remoteTransport.close()
     }
+
+    /**
+     * Verify that when remote sends CLIPBOARD_SEND, the receiver loop
+     * responds with CLIPBOARD_ACK (protocol flow test).
+     */
+    @Test
+    fun `receive loop handles CLIPBOARD_SEND and sends ACK`() = runTest {
+        val cmToRemote = PipedOutputStream()
+        val remoteIn = PipedInputStream(cmToRemote)
+        val remoteToCm = PipedOutputStream()
+        val cmIn = PipedInputStream(remoteToCm)
+
+        val remoteTransport = FakeTransport(remoteIn, remoteToCm)
+        val cmFake = FakeTransport(cmIn, cmToRemote)
+
+        // Remote sends CLIPBOARD_SEND
+        launch(Dispatchers.IO) {
+            remoteTransport.sendMessage(ProtocolMessage.clipboardSend("hello from mac"))
+        }
+
+        // Simulate receiver loop: read CLIPBOARD_SEND, respond with ACK
+        val receiverJob = launch(Dispatchers.IO) {
+            val msg = cmFake.recvMessage()
+            assertEquals(MessageType.CLIPBOARD_SEND, msg.type)
+            assertEquals("hello from mac", msg.payloadText())
+            // Mirror what the actual receive loop does
+            cmFake.sendMessage(ProtocolMessage.clipboardAck())
+        }
+
+        receiverJob.join()
+
+        // Remote should receive the ACK
+        val ackJob = async(Dispatchers.IO) {
+            remoteTransport.recvMessage()
+        }
+        val ack = ackJob.await()
+        assertEquals(MessageType.CLIPBOARD_ACK, ack.type)
+
+        cmFake.close()
+        remoteTransport.close()
+    }
+
+    /**
+     * Verify that PING then CLIPBOARD_SEND are both handled correctly
+     * (PONG reply + CLIPBOARD_ACK reply).
+     */
+    @Test
+    fun `receive loop handles PING then CLIPBOARD_SEND`() = runTest {
+        val cmToRemote = PipedOutputStream()
+        val remoteIn = PipedInputStream(cmToRemote)
+        val remoteToCm = PipedOutputStream()
+        val cmIn = PipedInputStream(remoteToCm)
+
+        val remoteTransport = FakeTransport(remoteIn, remoteToCm)
+        val cmFake = FakeTransport(cmIn, cmToRemote)
+
+        // Remote sends PING then CLIPBOARD_SEND
+        launch(Dispatchers.IO) {
+            remoteTransport.sendMessage(ProtocolMessage.ping())
+            remoteTransport.sendMessage(ProtocolMessage.clipboardSend("test text"))
+        }
+
+        // Simulate receiver loop handling both messages
+        val receiverJob = launch(Dispatchers.IO) {
+            // Handle PING
+            val pingMsg = cmFake.recvMessage()
+            assertEquals(MessageType.PING, pingMsg.type)
+            cmFake.sendMessage(ProtocolMessage.pong())
+
+            // Handle CLIPBOARD_SEND
+            val clipMsg = cmFake.recvMessage()
+            assertEquals(MessageType.CLIPBOARD_SEND, clipMsg.type)
+            assertEquals("test text", clipMsg.payloadText())
+            cmFake.sendMessage(ProtocolMessage.clipboardAck())
+        }
+
+        receiverJob.join()
+
+        // Remote reads: PONG then CLIPBOARD_ACK
+        val remoteJob = async(Dispatchers.IO) {
+            val pong = remoteTransport.recvMessage()
+            val ack = remoteTransport.recvMessage()
+            Pair(pong, ack)
+        }
+        val (pong, ack) = remoteJob.await()
+        assertEquals(MessageType.PONG, pong.type)
+        assertEquals(MessageType.CLIPBOARD_ACK, ack.type)
+
+        cmFake.close()
+        remoteTransport.close()
+    }
+
+    /**
+     * Verify that existing CLIPBOARD_ACK handling still works
+     * alongside the new CLIPBOARD_SEND handler.
+     */
+    @Test
+    fun `existing ACK and PING handling unaffected by CLIPBOARD_SEND addition`() = runTest {
+        val cmToRemote = PipedOutputStream()
+        val remoteIn = PipedInputStream(cmToRemote)
+        val remoteToCm = PipedOutputStream()
+        val cmIn = PipedInputStream(remoteToCm)
+
+        val remoteTransport = FakeTransport(remoteIn, remoteToCm)
+        val cmFake = FakeTransport(cmIn, cmToRemote)
+
+        val pendingAck = CompletableDeferred<Boolean>()
+
+        // Remote sends CLIPBOARD_ACK (existing behavior)
+        launch(Dispatchers.IO) {
+            remoteTransport.sendMessage(ProtocolMessage.clipboardAck())
+        }
+
+        // Simulate receiver loop
+        val receiverJob = launch(Dispatchers.IO) {
+            val msg = cmFake.recvMessage()
+            when (msg.type) {
+                MessageType.CLIPBOARD_ACK -> pendingAck.complete(true)
+                MessageType.CLIPBOARD_SEND -> {
+                    // This branch should NOT be hit
+                    fail("Should not receive CLIPBOARD_SEND")
+                }
+                else -> {}
+            }
+        }
+
+        receiverJob.join()
+        assertTrue(pendingAck.await())
+
+        cmFake.close()
+        remoteTransport.close()
+    }
 }

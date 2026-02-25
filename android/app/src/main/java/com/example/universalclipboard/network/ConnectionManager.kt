@@ -1,5 +1,8 @@
 package com.example.universalclipboard.network
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.util.Log
 import com.example.universalclipboard.crypto.IdentityManager
 import com.example.universalclipboard.crypto.NoiseHandshake
@@ -24,7 +27,8 @@ sealed class ConnectionState {
  * Manages the connection lifecycle to a clipboard receiver.
  */
 class ConnectionManager(
-    private val identityManager: IdentityManager
+    private val identityManager: IdentityManager,
+    private val context: Context? = null
 ) {
     companion object {
         private const val TAG = "ConnectionManager"
@@ -192,6 +196,23 @@ class ConnectionManager(
                             transport?.sendMessage(ProtocolMessage.pong())
                         }
                         MessageType.PONG -> { /* keepalive response */ }
+                        MessageType.CLIPBOARD_SEND -> {
+                            val text = msg.payloadText()
+                            Log.i(TAG, "Received clipboard from remote (${text.length} chars)")
+                            try {
+                                if (context != null) {
+                                    withContext(Dispatchers.Main) {
+                                        val clipboardManager = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        val clip = ClipData.newPlainText("Universal Clipboard", text)
+                                        clipboardManager.setPrimaryClip(clip)
+                                    }
+                                }
+                                transport?.sendMessage(ProtocolMessage.clipboardAck())
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Failed to set clipboard", e)
+                                transport?.sendMessage(ProtocolMessage.error("clipboard error: ${e.message}"))
+                            }
+                        }
                         MessageType.ERROR -> {
                             Log.w(TAG, "Remote error: ${msg.payloadText()}")
                         }
