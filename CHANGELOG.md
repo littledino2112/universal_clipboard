@@ -1,3 +1,12 @@
+## v0.5.0 (2026-02-25)
+
+### Features
+- feat: display build version in macOS and Android apps (#15)
+- feat: add macOS-to-Android clipboard sending (#14)
+
+### Fixes
+- fix: use perl instead of sed for portable in-place editing
+
 ## v0.4.0 (2026-02-23)
 
 ### Features
