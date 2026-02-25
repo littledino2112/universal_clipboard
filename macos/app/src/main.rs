@@ -140,8 +140,16 @@ fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         .expect("failed to load tray icon");
 
     // Right-click context menu
+    let version_label = format!("Version {}", env!("CARGO_PKG_VERSION"));
+    let version_item = MenuItemBuilder::with_id("version", &version_label)
+        .enabled(false)
+        .build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "Quit Universal Clipboard").build(app)?;
-    let menu = MenuBuilder::new(app).item(&quit).build()?;
+    let menu = MenuBuilder::new(app)
+        .item(&version_item)
+        .separator()
+        .item(&quit)
+        .build()?;
 
     let _tray = TrayIconBuilder::new()
         .icon(icon)

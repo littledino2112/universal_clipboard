@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -14,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.example.universalclipboard.BuildConfig
 import com.example.universalclipboard.crypto.PairedDevice
 import com.example.universalclipboard.data.ClipboardItem
 import com.example.universalclipboard.network.ConnectionState
@@ -73,8 +75,32 @@ fun MainScreen(
                         text = statusText,
                         color = statusColor,
                         style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.padding(end = 16.dp)
+                        modifier = Modifier.padding(end = 4.dp)
                     )
+
+                    // Overflow menu with version info
+                    var showMenu by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "Menu")
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "Version ${BuildConfig.VERSION_NAME}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                },
+                                onClick = {},
+                                enabled = false
+                            )
+                        }
+                    }
                 }
             )
         },
