@@ -1,3 +1,8 @@
+## v0.6.0 (2026-02-26)
+
+### Features
+- feat: add image clipboard support with chunked transfer protocol (#16)
+
 ## v0.5.0 (2026-02-25)
 
 ### Features
