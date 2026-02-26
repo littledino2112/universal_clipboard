@@ -1,14 +1,16 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 use tauri::State;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 use uclip_core::clipboard;
 use uclip_core::events::AppState;
 use uclip_core::protocol::Message;
+use uclip_core::server;
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -20,11 +22,18 @@ const MAX_SEND_BYTES: usize = 65514;
 #[derive(Debug, Clone, Serialize)]
 pub struct ClipboardItem {
     pub id: u64,
+    pub item_type: String,
     pub text: String,
     pub preview: String,
     pub timestamp: u64,
     pub sent: bool,
+    pub size_bytes: Option<u64>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
 }
+
+pub type ImageStore = Arc<Mutex<HashMap<u64, Vec<u8>>>>;
+pub type TransferLock = Arc<AtomicBool>;
 
 pub type ClipboardItems = Arc<RwLock<Vec<ClipboardItem>>>;
 
@@ -119,10 +128,14 @@ pub async fn paste_clipboard(
 
     let item = ClipboardItem {
         id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+        item_type: "text".to_string(),
         preview: make_preview(&text),
         text,
         timestamp: now_millis(),
         sent: false,
+        size_bytes: None,
+        width: None,
+        height: None,
     };
 
     let mut items = items.write().await;
@@ -180,8 +193,140 @@ pub async fn send_clipboard_item(
 pub async fn remove_clipboard_item(
     id: u64,
     items: State<'_, ClipboardItems>,
+    image_store: State<'_, ImageStore>,
 ) -> Result<Vec<ClipboardItem>, String> {
     let mut items = items.write().await;
     items.retain(|i| i.id != id);
+    // Clean up image data
+    let mut store = image_store.lock().await;
+    store.remove(&id);
     Ok(items.clone())
+}
+
+#[tauri::command]
+pub async fn paste_image_from_clipboard(
+    items: State<'_, ClipboardItems>,
+    image_store: State<'_, ImageStore>,
+) -> Result<Vec<ClipboardItem>, String> {
+    let png_bytes = clipboard::get_clipboard_image()
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "No image on clipboard".to_string())?;
+
+    let (width, height) = clipboard::png_dimensions(&png_bytes).map_err(|e| e.to_string())?;
+
+    let size_bytes = png_bytes.len() as u64;
+    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    let kb = size_bytes / 1024;
+    let preview = format!("Image ({}x{}, {} KB)", width, height, kb);
+
+    let item = ClipboardItem {
+        id,
+        item_type: "image".to_string(),
+        text: String::new(),
+        preview,
+        timestamp: now_millis(),
+        sent: false,
+        size_bytes: Some(size_bytes),
+        width: Some(width),
+        height: Some(height),
+    };
+
+    // Store PNG bytes
+    {
+        let mut store = image_store.lock().await;
+        store.insert(id, png_bytes);
+    }
+
+    let mut items = items.write().await;
+    items.insert(0, item);
+
+    // Evict old items and their image data
+    if items.len() > MAX_CLIPBOARD_ITEMS {
+        let evicted: Vec<u64> = items[MAX_CLIPBOARD_ITEMS..]
+            .iter()
+            .filter(|i| i.item_type == "image")
+            .map(|i| i.id)
+            .collect();
+        items.truncate(MAX_CLIPBOARD_ITEMS);
+        let mut store = image_store.lock().await;
+        for evicted_id in evicted {
+            store.remove(&evicted_id);
+        }
+    }
+
+    Ok(items.clone())
+}
+
+#[tauri::command]
+pub async fn send_image_item(
+    id: u64,
+    items: State<'_, ClipboardItems>,
+    image_store: State<'_, ImageStore>,
+    state: State<'_, Arc<AppState>>,
+    transfer_lock: State<'_, TransferLock>,
+) -> Result<bool, String> {
+    // Check transfer lock
+    if transfer_lock.swap(true, Ordering::SeqCst) {
+        return Err("transfer already in progress".to_string());
+    }
+
+    let item = {
+        let items = items.read().await;
+        items
+            .iter()
+            .find(|i| i.id == id)
+            .cloned()
+            .ok_or_else(|| "item not found".to_string())?
+    };
+
+    if item.item_type != "image" {
+        transfer_lock.store(false, Ordering::SeqCst);
+        return Err("item is not an image".to_string());
+    }
+
+    let png_bytes = {
+        let store = image_store.lock().await;
+        store
+            .get(&id)
+            .cloned()
+            .ok_or_else(|| "image data not found".to_string())?
+    };
+
+    let width = item.width.unwrap_or(0);
+    let height = item.height.unwrap_or(0);
+
+    let session_tx = state.session_tx.read().await;
+    let tx = match session_tx.as_ref() {
+        Some(tx) => tx.clone(),
+        None => {
+            transfer_lock.store(false, Ordering::SeqCst);
+            return Err("no active session".to_string());
+        }
+    };
+
+    let state_inner = state.inner().clone();
+    let transfer_lock_inner = transfer_lock.inner().clone();
+    let items_inner = items.inner().clone();
+
+    tauri::async_runtime::spawn(async move {
+        let result = server::send_image_chunks(&tx, &png_bytes, width, height, &state_inner).await;
+        transfer_lock_inner.store(false, Ordering::SeqCst);
+        match result {
+            Ok(()) => {
+                // Mark item as sent
+                let mut items = items_inner.write().await;
+                if let Some(item) = items.iter_mut().find(|i| i.id == id) {
+                    item.sent = true;
+                }
+            }
+            Err(e) => {
+                tracing::error!("image send failed: {}", e);
+                state_inner.emit(uclip_core::events::ServerEvent::ImageTransferFailed {
+                    reason: e.to_string(),
+                });
+            }
+        }
+    });
+
+    Ok(true)
 }

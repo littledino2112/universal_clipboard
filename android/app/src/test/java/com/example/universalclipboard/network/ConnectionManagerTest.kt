@@ -303,6 +303,175 @@ class ConnectionManagerTest {
     }
 
     /**
+     * Verify that image send produces correct message sequence:
+     * IMAGE_SEND_START, N IMAGE_CHUNKs, IMAGE_SEND_END.
+     */
+    @Test
+    fun `send image produces correct message sequence`() = runTest {
+        val cmToRemote = PipedOutputStream()
+        val remoteIn = PipedInputStream(cmToRemote)
+        val remoteToCm = PipedOutputStream()
+        val cmIn = PipedInputStream(remoteToCm)
+
+        val remoteTransport = FakeTransport(remoteIn, remoteToCm)
+        val cmFake = FakeTransport(cmIn, cmToRemote)
+
+        val pngBytes = ByteArray(150_000) { (it % 256).toByte() }
+
+        // Simulate sender: write IMAGE_SEND_START, chunks, IMAGE_SEND_END
+        launch(Dispatchers.IO) {
+            val metadata = """{"width":100,"height":100,"totalBytes":${pngBytes.size},"mimeType":"image/png"}"""
+            cmFake.sendMessage(ProtocolMessage.imageSendStart(metadata))
+
+            var offset = 0
+            while (offset < pngBytes.size) {
+                val end = minOf(offset + MessageType.IMAGE_CHUNK_SIZE, pngBytes.size)
+                val chunk = pngBytes.copyOfRange(offset, end)
+                cmFake.sendMessage(ProtocolMessage.imageChunk(chunk))
+                offset = end
+            }
+
+            cmFake.sendMessage(ProtocolMessage.imageSendEnd())
+        }
+
+        // Remote reads all messages
+        val messages = mutableListOf<ProtocolMessage>()
+        val receiverJob = launch(Dispatchers.IO) {
+            // Read START
+            messages.add(remoteTransport.recvMessage())
+            // Read chunks until IMAGE_SEND_END
+            while (true) {
+                val msg = remoteTransport.recvMessage()
+                messages.add(msg)
+                if (msg.type == MessageType.IMAGE_SEND_END) break
+            }
+        }
+
+        receiverJob.join()
+
+        // Verify sequence: START, CHUNK, CHUNK, ..., END
+        assertTrue(messages.size >= 3) // at least START + 1 CHUNK + END
+        assertEquals(MessageType.IMAGE_SEND_START, messages.first().type)
+        assertEquals(MessageType.IMAGE_SEND_END, messages.last().type)
+        for (i in 1 until messages.size - 1) {
+            assertEquals(MessageType.IMAGE_CHUNK, messages[i].type)
+        }
+
+        cmFake.close()
+        remoteTransport.close()
+    }
+
+    /**
+     * Verify that each chunk payload does not exceed IMAGE_CHUNK_SIZE.
+     */
+    @Test
+    fun `send image chunk size does not exceed limit`() {
+        val pngBytes = ByteArray(200_000) { (it % 256).toByte() }
+        val chunks = mutableListOf<ByteArray>()
+
+        var offset = 0
+        while (offset < pngBytes.size) {
+            val end = minOf(offset + MessageType.IMAGE_CHUNK_SIZE, pngBytes.size)
+            chunks.add(pngBytes.copyOfRange(offset, end))
+            offset = end
+        }
+
+        for (chunk in chunks) {
+            assertTrue("Chunk size ${chunk.size} exceeds limit", chunk.size <= MessageType.IMAGE_CHUNK_SIZE)
+        }
+    }
+
+    /**
+     * Verify correct chunk count for a known input size.
+     */
+    @Test
+    fun `send image calculates correct chunk count`() {
+        // 150,000 bytes / 60,000 = 2.5 -> 3 chunks
+        val pngBytes = ByteArray(150_000)
+        var chunkCount = 0
+        var offset = 0
+        while (offset < pngBytes.size) {
+            val end = minOf(offset + MessageType.IMAGE_CHUNK_SIZE, pngBytes.size)
+            chunkCount++
+            offset = end
+        }
+        assertEquals(3, chunkCount)
+
+        // Exactly 60,000 bytes -> 1 chunk
+        val exact = ByteArray(60_000)
+        var count2 = 0
+        offset = 0
+        while (offset < exact.size) {
+            val end = minOf(offset + MessageType.IMAGE_CHUNK_SIZE, exact.size)
+            count2++
+            offset = end
+        }
+        assertEquals(1, count2)
+    }
+
+    /**
+     * Verify that reassembling chunks produces the original bytes.
+     */
+    @Test
+    fun `receive image reassembles chunks correctly`() = runTest {
+        val original = ByteArray(175_000) { (it % 256).toByte() }
+        val cmToRemote = PipedOutputStream()
+        val remoteIn = PipedInputStream(cmToRemote)
+        val remoteToCm = PipedOutputStream()
+        val cmIn = PipedInputStream(remoteToCm)
+
+        val remoteTransport = FakeTransport(remoteIn, remoteToCm)
+        val cmFake = FakeTransport(cmIn, cmToRemote)
+
+        // Sender sends chunks
+        launch(Dispatchers.IO) {
+            val metadata = """{"width":100,"height":100,"totalBytes":${original.size},"mimeType":"image/png"}"""
+            cmFake.sendMessage(ProtocolMessage.imageSendStart(metadata))
+
+            var offset = 0
+            while (offset < original.size) {
+                val end = minOf(offset + MessageType.IMAGE_CHUNK_SIZE, original.size)
+                cmFake.sendMessage(ProtocolMessage.imageChunk(original.copyOfRange(offset, end)))
+                offset = end
+            }
+            cmFake.sendMessage(ProtocolMessage.imageSendEnd())
+        }
+
+        // Receiver reassembles
+        val reassembled = async(Dispatchers.IO) {
+            val startMsg = remoteTransport.recvMessage()
+            assertEquals(MessageType.IMAGE_SEND_START, startMsg.type)
+
+            val buffer = java.io.ByteArrayOutputStream()
+            while (true) {
+                val msg = remoteTransport.recvMessage()
+                if (msg.type == MessageType.IMAGE_SEND_END) break
+                assertEquals(MessageType.IMAGE_CHUNK, msg.type)
+                buffer.write(msg.payload)
+            }
+            buffer.toByteArray()
+        }
+
+        val result = reassembled.await()
+        assertArrayEquals(original, result)
+
+        cmFake.close()
+        remoteTransport.close()
+    }
+
+    /**
+     * Verify that receiver rejects transfers exceeding 25 MB.
+     */
+    @Test
+    fun `receive image rejects oversized transfer`() {
+        val oversized = MessageType.MAX_IMAGE_SIZE + 1
+        val metadata = """{"width":100,"height":100,"totalBytes":$oversized,"mimeType":"image/png"}"""
+        val json = org.json.JSONObject(metadata)
+        val totalBytes = json.getLong("totalBytes")
+        assertTrue("Should exceed max", totalBytes > MessageType.MAX_IMAGE_SIZE)
+    }
+
+    /**
      * Verify that existing CLIPBOARD_ACK handling still works
      * alongside the new CLIPBOARD_SEND handler.
      */

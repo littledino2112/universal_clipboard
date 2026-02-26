@@ -19,6 +19,7 @@ import com.example.universalclipboard.BuildConfig
 import com.example.universalclipboard.crypto.PairedDevice
 import com.example.universalclipboard.data.ClipboardItem
 import com.example.universalclipboard.network.ConnectionState
+import com.example.universalclipboard.ui.ImageTransferState
 import com.example.universalclipboard.ui.MainUiState
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -138,6 +139,12 @@ fun MainScreen(
 
             Divider(modifier = Modifier.padding(vertical = 8.dp))
 
+            // Image transfer progress indicator
+            ImageTransferIndicator(
+                state = uiState.imageTransferState,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+
             // Clipboard items
             Text(
                 text = "Clipboard Items (${uiState.clipboardItems.size}/10)",
@@ -159,6 +166,7 @@ fun MainScreen(
                     )
                 }
             } else {
+                val isSendEnabled = uiState.isSendEnabled
                 LazyColumn(
                     modifier = Modifier.weight(1f),
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
@@ -167,7 +175,7 @@ fun MainScreen(
                     items(uiState.clipboardItems, key = { it.id }) { item ->
                         ClipboardItemCard(
                             item = item,
-                            isConnected = uiState.connectionState is ConnectionState.Connected,
+                            isConnected = uiState.connectionState is ConnectionState.Connected && isSendEnabled,
                             onSend = { onSendItem(item.id) },
                             onDelete = { onDeleteItem(item.id) }
                         )
@@ -383,6 +391,67 @@ private fun ConnectionSection(
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ImageTransferIndicator(
+    state: ImageTransferState,
+    modifier: Modifier = Modifier
+) {
+    when (state) {
+        is ImageTransferState.Idle -> { /* hidden */ }
+        is ImageTransferState.Preparing -> {
+            Column(modifier = modifier.padding(vertical = 4.dp)) {
+                Text(
+                    "Preparing image...",
+                    style = MaterialTheme.typography.labelMedium
+                )
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+        }
+        is ImageTransferState.Sending -> {
+            val progress = if (state.bytesTotal > 0) {
+                state.bytesSent.toFloat() / state.bytesTotal
+            } else 0f
+            val sentMb = "%.1f".format(state.bytesSent / (1024.0 * 1024.0))
+            val totalMb = "%.1f".format(state.bytesTotal / (1024.0 * 1024.0))
+            Column(modifier = modifier.padding(vertical = 4.dp)) {
+                Text(
+                    "Sending $sentMb / $totalMb MB",
+                    style = MaterialTheme.typography.labelMedium
+                )
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+        is ImageTransferState.Receiving -> {
+            val progress = if (state.bytesTotal > 0) {
+                state.bytesReceived.toFloat() / state.bytesTotal
+            } else 0f
+            val pct = (progress * 100).toInt()
+            Column(modifier = modifier.padding(vertical = 4.dp)) {
+                Text(
+                    "Receiving $pct%",
+                    style = MaterialTheme.typography.labelMedium
+                )
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+        is ImageTransferState.Failed -> {
+            Column(modifier = modifier.padding(vertical = 4.dp)) {
+                Text(
+                    "Transfer failed: ${state.reason}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.error
+                )
             }
         }
     }

@@ -4512,6 +4512,7 @@ dependencies = [
  "directories",
  "hex",
  "hkdf",
+ "image",
  "mdns-sd",
  "rand 0.8.5",
  "serde",

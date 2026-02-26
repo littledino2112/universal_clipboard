@@ -10,10 +10,15 @@ const connectedDevice = document.getElementById("connectedDevice");
 const devicesList = document.getElementById("devicesList");
 const portInfo = document.getElementById("portInfo");
 const pasteBtn = document.getElementById("pasteBtn");
+const pasteImageBtn = document.getElementById("pasteImageBtn");
 const clipboardList = document.getElementById("clipboardList");
 const clipCount = document.getElementById("clipCount");
+const transferProgress = document.getElementById("transferProgress");
+const transferLabel = document.getElementById("transferLabel");
+const transferFill = document.getElementById("transferFill");
 
 let isConnected = false;
+let isTransferActive = false;
 
 async function loadStatus() {
   try {
@@ -80,6 +85,13 @@ function formatTime(epochMs) {
   return `${h}:${m}:${s}`;
 }
 
+function formatBytes(bytes) {
+  if (bytes >= 1024 * 1024) {
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  }
+  return (bytes / 1024).toFixed(0) + " KB";
+}
+
 function renderClipboardItems(items) {
   clipCount.textContent = `${items.length}/5`;
   if (items.length === 0) {
@@ -87,30 +99,38 @@ function renderClipboardItems(items) {
     return;
   }
   clipboardList.innerHTML = items
-    .map(
-      (item) => `
-    <div class="clipboard-item" data-id="${item.id}">
+    .map((item) => {
+      const isImage = item.item_type === "image";
+      const icon = isImage ? "🖼" : "";
+      const sendDisabled = !isConnected || isTransferActive;
+      return `
+    <div class="clipboard-item ${isImage ? "clipboard-item-image" : ""}" data-id="${item.id}">
       <div class="clipboard-item-left">
-        <div class="clipboard-item-preview">${escapeHtml(item.preview)}</div>
+        <div class="clipboard-item-preview">${icon ? icon + " " : ""}${escapeHtml(item.preview)}</div>
         <div class="clipboard-item-meta">
           <span class="clipboard-item-time">${formatTime(item.timestamp)}</span>
           ${item.sent ? '<span class="sent-badge">Sent</span>' : ""}
         </div>
       </div>
       <div class="clipboard-item-actions">
-        <button class="send-btn" data-id="${item.id}" ${!isConnected ? "disabled" : ""}>Send</button>
+        <button class="send-btn" data-id="${item.id}" data-type="${item.item_type}" ${sendDisabled ? "disabled" : ""}>Send</button>
         <button class="delete-btn" data-id="${item.id}">&times;</button>
       </div>
     </div>
-  `
-    )
+  `;
+    })
     .join("");
 
   clipboardList.querySelectorAll(".send-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const id = Number(btn.dataset.id);
+      const type = btn.dataset.type;
       try {
-        await invoke("send_clipboard_item", { id });
+        if (type === "image") {
+          await invoke("send_image_item", { id });
+        } else {
+          await invoke("send_clipboard_item", { id });
+        }
         loadClipboardItems();
       } catch (e) {
         console.error("Failed to send clipboard item:", e);
@@ -149,10 +169,40 @@ pasteBtn.addEventListener("click", async () => {
   }
 });
 
+pasteImageBtn.addEventListener("click", async () => {
+  try {
+    const items = await invoke("paste_image_from_clipboard");
+    renderClipboardItems(items);
+  } catch (e) {
+    console.error("Failed to paste image:", e);
+  }
+});
+
 function updateSendButtons() {
   clipboardList.querySelectorAll(".send-btn").forEach((btn) => {
-    btn.disabled = !isConnected;
+    btn.disabled = !isConnected || isTransferActive;
   });
+}
+
+function showTransferProgress(label, percent) {
+  transferProgress.classList.remove("hidden");
+  transferLabel.textContent = label;
+  if (percent !== null) {
+    transferFill.style.width = percent + "%";
+  } else {
+    transferFill.style.width = "100%";
+    transferFill.classList.add("indeterminate");
+  }
+  isTransferActive = true;
+  updateSendButtons();
+}
+
+function hideTransferProgress() {
+  transferProgress.classList.add("hidden");
+  transferFill.style.width = "0%";
+  transferFill.classList.remove("indeterminate");
+  isTransferActive = false;
+  updateSendButtons();
 }
 
 function escapeHtml(str) {
@@ -193,6 +243,26 @@ listen("server-event", (event) => {
     case "ClipboardReceived":
       break;
     case "ClipboardSent":
+      break;
+    case "ImageTransferProgress": {
+      const sent = data.data.bytes_transferred;
+      const total = data.data.bytes_total;
+      const pct = Math.round((sent / total) * 100);
+      showTransferProgress(`Transferring ${formatBytes(sent)} / ${formatBytes(total)}`, pct);
+      break;
+    }
+    case "ImageReceived":
+      hideTransferProgress();
+      loadClipboardItems();
+      break;
+    case "ImageSent":
+      hideTransferProgress();
+      loadClipboardItems();
+      break;
+    case "ImageTransferFailed":
+      transferLabel.textContent = "Transfer failed: " + (data.data.reason || "Unknown error");
+      transferFill.style.width = "0%";
+      setTimeout(hideTransferProgress, 3000);
       break;
     case "HandshakeFailed":
       statusDot.className = "status-dot error";

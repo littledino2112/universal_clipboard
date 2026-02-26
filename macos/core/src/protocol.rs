@@ -12,6 +12,10 @@ pub enum MessageType {
     Pong = 0x04,
     DeviceInfo = 0x05,
     Error = 0x06,
+    ImageSendStart = 0x07,
+    ImageChunk = 0x08,
+    ImageSendEnd = 0x09,
+    ImageAck = 0x0A,
 }
 
 impl TryFrom<u8> for MessageType {
@@ -25,6 +29,10 @@ impl TryFrom<u8> for MessageType {
             0x04 => Ok(Self::Pong),
             0x05 => Ok(Self::DeviceInfo),
             0x06 => Ok(Self::Error),
+            0x07 => Ok(Self::ImageSendStart),
+            0x08 => Ok(Self::ImageChunk),
+            0x09 => Ok(Self::ImageSendEnd),
+            0x0A => Ok(Self::ImageAck),
             _ => bail!("unknown message type: 0x{:02x}", value),
         }
     }
@@ -67,6 +75,25 @@ impl Message {
         Self::new(MessageType::Error, msg.as_bytes().to_vec())
     }
 
+    pub fn image_send_start(metadata_json: &str) -> Self {
+        Self::new(
+            MessageType::ImageSendStart,
+            metadata_json.as_bytes().to_vec(),
+        )
+    }
+
+    pub fn image_chunk(data: &[u8]) -> Self {
+        Self::new(MessageType::ImageChunk, data.to_vec())
+    }
+
+    pub fn image_send_end() -> Self {
+        Self::new(MessageType::ImageSendEnd, vec![])
+    }
+
+    pub fn image_ack() -> Self {
+        Self::new(MessageType::ImageAck, vec![])
+    }
+
     /// Encode message into wire format: [type(1) | length(4) | payload(N)]
     pub fn encode(&self) -> Vec<u8> {
         let len = self.payload.len() as u32;
@@ -101,9 +128,15 @@ impl Message {
     }
 }
 
-/// Maximum message payload size (1 MB).
+/// Maximum message payload size (25 MB — for image transfer metadata validation).
 #[allow(dead_code)]
-const MAX_PAYLOAD_SIZE: u32 = 1_048_576;
+const MAX_PAYLOAD_SIZE: u32 = 26_214_400;
+
+/// Chunk size for image transfers (~60 KB, under Noise plaintext limit).
+pub const IMAGE_CHUNK_SIZE: usize = 60_000;
+
+/// Maximum total image size (25 MB).
+pub const MAX_IMAGE_SIZE: usize = 25 * 1024 * 1024;
 
 /// Handshake type markers sent before the Noise handshake.
 pub const HANDSHAKE_PAIRING: u8 = 0x00;
@@ -146,6 +179,10 @@ mod tests {
             (0x04, MessageType::Pong),
             (0x05, MessageType::DeviceInfo),
             (0x06, MessageType::Error),
+            (0x07, MessageType::ImageSendStart),
+            (0x08, MessageType::ImageChunk),
+            (0x09, MessageType::ImageSendEnd),
+            (0x0A, MessageType::ImageAck),
         ];
         for (byte, expected) in types {
             let parsed = MessageType::try_from(byte).unwrap();
@@ -157,7 +194,7 @@ mod tests {
     #[test]
     fn test_message_type_unknown_returns_error() {
         assert!(MessageType::try_from(0x00).is_err());
-        assert!(MessageType::try_from(0x07).is_err());
+        assert!(MessageType::try_from(0x0B).is_err());
         assert!(MessageType::try_from(0xFF).is_err());
     }
 
@@ -255,6 +292,12 @@ mod tests {
             Message::pong(),
             Message::device_info("test-device"),
             Message::error("test error"),
+            Message::image_send_start(
+                r#"{"width":100,"height":100,"totalBytes":1000,"mimeType":"image/png"}"#,
+            ),
+            Message::image_chunk(&[1, 2, 3, 4, 5]),
+            Message::image_send_end(),
+            Message::image_ack(),
         ];
         for original in messages {
             let encoded = original.encode();
@@ -268,5 +311,75 @@ mod tests {
     fn test_handshake_type_constants() {
         assert_eq!(HANDSHAKE_PAIRING, 0x00);
         assert_eq!(HANDSHAKE_PAIRED, 0x01);
+    }
+
+    #[test]
+    fn test_image_send_start_encode_decode() {
+        let metadata =
+            r#"{"width":1920,"height":1080,"totalBytes":5000000,"mimeType":"image/png"}"#;
+        let msg = Message::image_send_start(metadata);
+        let encoded = msg.encode();
+        assert_eq!(encoded[0], 0x07);
+        let decoded = Message::decode(&encoded).unwrap();
+        assert_eq!(decoded.msg_type, MessageType::ImageSendStart);
+        assert_eq!(decoded.payload_text().unwrap(), metadata);
+    }
+
+    #[test]
+    fn test_image_chunk_encode_decode() {
+        let data: Vec<u8> = (0..255).collect();
+        let msg = Message::image_chunk(&data);
+        let encoded = msg.encode();
+        assert_eq!(encoded[0], 0x08);
+        let decoded = Message::decode(&encoded).unwrap();
+        assert_eq!(decoded.msg_type, MessageType::ImageChunk);
+        assert_eq!(decoded.payload, data);
+    }
+
+    #[test]
+    fn test_image_send_end_encode_decode() {
+        let msg = Message::image_send_end();
+        let encoded = msg.encode();
+        assert_eq!(encoded[0], 0x09);
+        let decoded = Message::decode(&encoded).unwrap();
+        assert_eq!(decoded.msg_type, MessageType::ImageSendEnd);
+        assert!(decoded.payload.is_empty());
+    }
+
+    #[test]
+    fn test_image_ack_encode_decode() {
+        let msg = Message::image_ack();
+        let encoded = msg.encode();
+        assert_eq!(encoded[0], 0x0A);
+        let decoded = Message::decode(&encoded).unwrap();
+        assert_eq!(decoded.msg_type, MessageType::ImageAck);
+        assert!(decoded.payload.is_empty());
+    }
+
+    #[test]
+    fn test_message_type_try_from_image_types() {
+        assert_eq!(
+            MessageType::try_from(0x07).unwrap(),
+            MessageType::ImageSendStart
+        );
+        assert_eq!(
+            MessageType::try_from(0x08).unwrap(),
+            MessageType::ImageChunk
+        );
+        assert_eq!(
+            MessageType::try_from(0x09).unwrap(),
+            MessageType::ImageSendEnd
+        );
+        assert_eq!(MessageType::try_from(0x0A).unwrap(), MessageType::ImageAck);
+    }
+
+    #[test]
+    fn test_image_chunk_size_constant() {
+        assert_eq!(IMAGE_CHUNK_SIZE, 60_000);
+    }
+
+    #[test]
+    fn test_max_image_size_constant() {
+        assert_eq!(MAX_IMAGE_SIZE, 25 * 1024 * 1024);
     }
 }
