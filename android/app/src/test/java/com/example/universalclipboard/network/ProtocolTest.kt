@@ -86,6 +86,10 @@ class ProtocolTest {
             ProtocolMessage.ping(),
             ProtocolMessage.pong(),
             ProtocolMessage.error("test error"),
+            ProtocolMessage.imageSendStart("""{"width":100,"height":100,"totalBytes":1000,"mimeType":"image/png"}"""),
+            ProtocolMessage.imageChunk(byteArrayOf(1, 2, 3, 4, 5)),
+            ProtocolMessage.imageSendEnd(),
+            ProtocolMessage.imageAck(),
         )
         for (original in messages) {
             val decoded = ProtocolMessage.decode(original.encode())
@@ -102,5 +106,69 @@ class ProtocolTest {
         assertEquals(0x04.toByte(), MessageType.PONG)
         assertEquals(0x05.toByte(), MessageType.DEVICE_INFO)
         assertEquals(0x06.toByte(), MessageType.ERROR)
+    }
+
+    @Test
+    fun `image send start encodes and decodes with JSON metadata`() {
+        val metadata = """{"width":1920,"height":1080,"totalBytes":5000000,"mimeType":"image/png"}"""
+        val msg = ProtocolMessage.imageSendStart(metadata)
+        val encoded = msg.encode()
+        assertEquals(MessageType.IMAGE_SEND_START, encoded[0])
+
+        val decoded = ProtocolMessage.decode(encoded)
+        assertEquals(MessageType.IMAGE_SEND_START, decoded.type)
+        assertEquals(metadata, decoded.payloadText())
+    }
+
+    @Test
+    fun `image chunk encodes and decodes with binary payload`() {
+        val data = ByteArray(255) { it.toByte() }
+        val msg = ProtocolMessage.imageChunk(data)
+        val encoded = msg.encode()
+        assertEquals(MessageType.IMAGE_CHUNK, encoded[0])
+
+        val decoded = ProtocolMessage.decode(encoded)
+        assertEquals(MessageType.IMAGE_CHUNK, decoded.type)
+        assertArrayEquals(data, decoded.payload)
+    }
+
+    @Test
+    fun `image send end encodes and decodes with empty payload`() {
+        val msg = ProtocolMessage.imageSendEnd()
+        val encoded = msg.encode()
+        assertEquals(MessageType.IMAGE_SEND_END, encoded[0])
+
+        val decoded = ProtocolMessage.decode(encoded)
+        assertEquals(MessageType.IMAGE_SEND_END, decoded.type)
+        assertEquals(0, decoded.payload.size)
+    }
+
+    @Test
+    fun `image ack encodes and decodes with empty payload`() {
+        val msg = ProtocolMessage.imageAck()
+        val encoded = msg.encode()
+        assertEquals(MessageType.IMAGE_ACK, encoded[0])
+
+        val decoded = ProtocolMessage.decode(encoded)
+        assertEquals(MessageType.IMAGE_ACK, decoded.type)
+        assertEquals(0, decoded.payload.size)
+    }
+
+    @Test
+    fun `image message types match Rust constants`() {
+        assertEquals(0x07.toByte(), MessageType.IMAGE_SEND_START)
+        assertEquals(0x08.toByte(), MessageType.IMAGE_CHUNK)
+        assertEquals(0x09.toByte(), MessageType.IMAGE_SEND_END)
+        assertEquals(0x0A.toByte(), MessageType.IMAGE_ACK)
+    }
+
+    @Test
+    fun `image chunk size constant`() {
+        assertEquals(60_000, MessageType.IMAGE_CHUNK_SIZE)
+    }
+
+    @Test
+    fun `max image size constant`() {
+        assertEquals(25 * 1024 * 1024, MessageType.MAX_IMAGE_SIZE)
     }
 }

@@ -10,13 +10,44 @@ use crate::storage::DeviceStore;
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", content = "data")]
 pub enum ServerEvent {
-    ServerStarted { port: u16, pairing_code: String },
-    DeviceConnected { name: String },
-    DeviceDisconnected { name: String },
-    ClipboardReceived { chars: usize },
-    ClipboardSent { chars: usize },
-    DevicePaired { name: String },
-    HandshakeFailed { addr: String, reason: String },
+    ServerStarted {
+        port: u16,
+        pairing_code: String,
+    },
+    DeviceConnected {
+        name: String,
+    },
+    DeviceDisconnected {
+        name: String,
+    },
+    ClipboardReceived {
+        chars: usize,
+    },
+    ClipboardSent {
+        chars: usize,
+    },
+    DevicePaired {
+        name: String,
+    },
+    HandshakeFailed {
+        addr: String,
+        reason: String,
+    },
+    ImageTransferProgress {
+        bytes_transferred: u64,
+        bytes_total: u64,
+    },
+    ImageReceived {
+        width: u32,
+        height: u32,
+        bytes: usize,
+    },
+    ImageSent {
+        bytes: usize,
+    },
+    ImageTransferFailed {
+        reason: String,
+    },
 }
 
 /// Shared application state accessible from server, CLI, and Tauri.
@@ -91,6 +122,54 @@ mod tests {
         let session_tx: Arc<RwLock<Option<mpsc::UnboundedSender<Message>>>> =
             Arc::new(RwLock::new(None));
         assert!(session_tx.read().await.is_none());
+    }
+
+    #[test]
+    fn test_image_transfer_progress_serializes() {
+        let event = ServerEvent::ImageTransferProgress {
+            bytes_transferred: 30000,
+            bytes_total: 100000,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["type"], "ImageTransferProgress");
+        assert_eq!(parsed["data"]["bytes_transferred"], 30000);
+        assert_eq!(parsed["data"]["bytes_total"], 100000);
+    }
+
+    #[test]
+    fn test_image_received_serializes() {
+        let event = ServerEvent::ImageReceived {
+            width: 1920,
+            height: 1080,
+            bytes: 5000000,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["type"], "ImageReceived");
+        assert_eq!(parsed["data"]["width"], 1920);
+        assert_eq!(parsed["data"]["height"], 1080);
+        assert_eq!(parsed["data"]["bytes"], 5000000);
+    }
+
+    #[test]
+    fn test_image_sent_serializes() {
+        let event = ServerEvent::ImageSent { bytes: 5000000 };
+        let json = serde_json::to_string(&event).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["type"], "ImageSent");
+        assert_eq!(parsed["data"]["bytes"], 5000000);
+    }
+
+    #[test]
+    fn test_image_transfer_failed_serializes() {
+        let event = ServerEvent::ImageTransferFailed {
+            reason: "image too large".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["type"], "ImageTransferFailed");
+        assert_eq!(parsed["data"]["reason"], "image too large");
     }
 
     #[tokio::test]

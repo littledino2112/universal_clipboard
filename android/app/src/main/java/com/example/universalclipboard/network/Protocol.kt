@@ -14,6 +14,13 @@ object MessageType {
     const val PONG: Byte = 0x04
     const val DEVICE_INFO: Byte = 0x05
     const val ERROR: Byte = 0x06
+    const val IMAGE_SEND_START: Byte = 0x07
+    const val IMAGE_CHUNK: Byte = 0x08
+    const val IMAGE_SEND_END: Byte = 0x09
+    const val IMAGE_ACK: Byte = 0x0A
+
+    const val IMAGE_CHUNK_SIZE: Int = 60_000
+    const val MAX_IMAGE_SIZE: Int = 25 * 1024 * 1024
 }
 
 /**
@@ -43,6 +50,18 @@ data class ProtocolMessage(
 
         fun error(msg: String): ProtocolMessage =
             ProtocolMessage(MessageType.ERROR, msg.toByteArray(StandardCharsets.UTF_8))
+
+        fun imageSendStart(metadata: String): ProtocolMessage =
+            ProtocolMessage(MessageType.IMAGE_SEND_START, metadata.toByteArray(StandardCharsets.UTF_8))
+
+        fun imageChunk(data: ByteArray): ProtocolMessage =
+            ProtocolMessage(MessageType.IMAGE_CHUNK, data)
+
+        fun imageSendEnd(): ProtocolMessage =
+            ProtocolMessage(MessageType.IMAGE_SEND_END, ByteArray(0))
+
+        fun imageAck(): ProtocolMessage =
+            ProtocolMessage(MessageType.IMAGE_ACK, ByteArray(0))
 
         /**
          * Decode a message from wire format bytes.

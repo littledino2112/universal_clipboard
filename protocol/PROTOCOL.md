@@ -86,6 +86,10 @@ All messages are sent through the Noise transport (encrypted + authenticated).
 | 0x04 | PONG             | Empty                       |
 | 0x05 | DEVICE_INFO      | JSON: `{"name": "..."}` |
 | 0x06 | ERROR            | UTF-8 error message         |
+| 0x07 | IMAGE_SEND_START | JSON: `{"width":W,"height":H,"totalBytes":N,"mimeType":"image/png"}` |
+| 0x08 | IMAGE_CHUNK      | Raw PNG bytes (up to 60,000 bytes per chunk) |
+| 0x09 | IMAGE_SEND_END   | Empty                       |
+| 0x0A | IMAGE_ACK        | Empty                       |
 
 ### Flow
 
@@ -93,6 +97,22 @@ All messages are sent through the Noise transport (encrypted + authenticated).
 2. Sender selects a clipboard item and sends `CLIPBOARD_SEND`
 3. Receiver writes content to system clipboard and responds with `CLIPBOARD_ACK`
 4. Periodic `PING`/`PONG` for keepalive (every 30 seconds)
+
+### Image Transfer Flow
+
+Images are transferred in chunks due to the Noise transport frame limit (~65KB).
+
+1. Sender sends `IMAGE_SEND_START` with JSON metadata (width, height, totalBytes, mimeType)
+2. Receiver validates `totalBytes <= 25 MB`; sends `ERROR` and rejects if exceeded
+3. Sender sends N `IMAGE_CHUNK` messages, each with up to 60,000 bytes of raw PNG data
+4. Sender sends `IMAGE_SEND_END` to signal completion
+5. Receiver reassembles chunks, writes image to system clipboard, sends `IMAGE_ACK`
+
+**Constraints:**
+- Maximum image size: 25 MB (`totalBytes` in metadata)
+- Maximum chunk payload: 60,000 bytes (under the ~65,519-byte Noise plaintext limit)
+- Single transfer at a time: no concurrent image transfers
+- Abort via `ERROR (0x06)`: if `ERROR` arrives during an active image receive, the buffer is discarded
 
 ## Security Properties
 

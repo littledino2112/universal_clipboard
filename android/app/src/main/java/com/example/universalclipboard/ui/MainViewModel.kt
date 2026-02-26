@@ -15,8 +15,20 @@ import com.example.universalclipboard.network.*
 import com.example.universalclipboard.service.ClipboardSyncService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+
+/**
+ * Transfer state for image send/receive progress.
+ */
+sealed class ImageTransferState {
+    data object Idle : ImageTransferState()
+    data object Preparing : ImageTransferState()
+    data class Sending(val bytesSent: Long, val bytesTotal: Long) : ImageTransferState()
+    data class Receiving(val bytesReceived: Long, val bytesTotal: Long) : ImageTransferState()
+    data class Failed(val reason: String) : ImageTransferState()
+}
 
 /**
  * Screen state for the main clipboard UI.
@@ -29,8 +41,12 @@ data class MainUiState(
     val pairingCode: String = "",
     val manualIp: String = "",
     val manualPort: String = "9876",
-    val snackbarMessage: String? = null
-)
+    val snackbarMessage: String? = null,
+    val imageTransferState: ImageTransferState = ImageTransferState.Idle
+) {
+    val isSendEnabled: Boolean
+        get() = imageTransferState is ImageTransferState.Idle
+}
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -108,7 +124,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (text.isBlank()) return
         _uiState.update { state ->
             val items = state.clipboardItems.toMutableList()
-            items.add(0, ClipboardItem(text = text))
+            items.add(0, ClipboardItem.TextItem(text = text))
+            if (items.size > MAX_CLIPBOARD_ITEMS) {
+                items.removeAt(items.lastIndex)
+            }
+            state.copy(clipboardItems = items)
+        }
+    }
+
+    fun addImageItem(pngBytes: ByteArray, width: Int, height: Int) {
+        _uiState.update { state ->
+            val items = state.clipboardItems.toMutableList()
+            items.add(
+                0,
+                ClipboardItem.ImageItem(
+                    pngBytes = pngBytes,
+                    width = width,
+                    height = height,
+                    sizeBytes = pngBytes.size.toLong()
+                )
+            )
             if (items.size > MAX_CLIPBOARD_ITEMS) {
                 items.removeAt(items.lastIndex)
             }
@@ -124,13 +159,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun sendClipboardItem(id: Long) {
         val item = _uiState.value.clipboardItems.find { it.id == id } ?: return
+        when (item) {
+            is ClipboardItem.TextItem -> sendTextItem(id, item)
+            is ClipboardItem.ImageItem -> sendImageItem(id, item)
+        }
+    }
+
+    private fun sendTextItem(id: Long, item: ClipboardItem.TextItem) {
         viewModelScope.launch(Dispatchers.IO) {
             val success = service?.connectionManager?.sendClipboardText(item.text) ?: false
             if (success) {
                 _uiState.update { state ->
                     state.copy(
                         clipboardItems = state.clipboardItems.map {
-                            if (it.id == id) it.copy(sent = true) else it
+                            if (it.id == id) it.withSent(true) else it
                         },
                         snackbarMessage = "Sent to clipboard!"
                     )
@@ -140,6 +182,99 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(snackbarMessage = "Failed to send. Check connection.")
                 }
             }
+        }
+    }
+
+    private fun sendImageItem(id: Long, item: ClipboardItem.ImageItem) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(imageTransferState = ImageTransferState.Preparing) }
+            try {
+                _uiState.update {
+                    it.copy(
+                        imageTransferState = ImageTransferState.Sending(
+                            0,
+                            item.pngBytes.size.toLong()
+                        )
+                    )
+                }
+                val success = service?.connectionManager?.sendImage(
+                    item.pngBytes,
+                    item.width,
+                    item.height
+                ) { bytesSent, bytesTotal ->
+                    _uiState.update {
+                        it.copy(
+                            imageTransferState = ImageTransferState.Sending(
+                                bytesSent,
+                                bytesTotal
+                            )
+                        )
+                    }
+                } ?: false
+
+                if (success) {
+                    _uiState.update { state ->
+                        state.copy(
+                            clipboardItems = state.clipboardItems.map {
+                                if (it.id == id) it.withSent(true) else it
+                            },
+                            imageTransferState = ImageTransferState.Idle,
+                            snackbarMessage = "Image sent!"
+                        )
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            imageTransferState = ImageTransferState.Failed("Send failed"),
+                            snackbarMessage = "Failed to send image."
+                        )
+                    }
+                    delay(3000)
+                    _uiState.update { it.copy(imageTransferState = ImageTransferState.Idle) }
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        imageTransferState = ImageTransferState.Failed(
+                            e.message ?: "Unknown error"
+                        ),
+                        snackbarMessage = "Image transfer failed."
+                    )
+                }
+                delay(3000)
+                _uiState.update { it.copy(imageTransferState = ImageTransferState.Idle) }
+            }
+        }
+    }
+
+    fun onImageReceiveStarted(bytesTotal: Long) {
+        _uiState.update {
+            it.copy(imageTransferState = ImageTransferState.Receiving(0, bytesTotal))
+        }
+    }
+
+    fun onImageReceiveProgress(bytesReceived: Long, bytesTotal: Long) {
+        _uiState.update {
+            it.copy(imageTransferState = ImageTransferState.Receiving(bytesReceived, bytesTotal))
+        }
+    }
+
+    fun onImageReceiveComplete() {
+        _uiState.update {
+            it.copy(
+                imageTransferState = ImageTransferState.Idle,
+                snackbarMessage = "Image received!"
+            )
+        }
+    }
+
+    fun onImageTransferFailed(reason: String) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(imageTransferState = ImageTransferState.Failed(reason))
+            }
+            delay(3000)
+            _uiState.update { it.copy(imageTransferState = ImageTransferState.Idle) }
         }
     }
 

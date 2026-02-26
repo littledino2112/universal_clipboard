@@ -30,8 +30,15 @@
     <section class="clipboard-section">
       <div class="section-label">Clipboard</div>
       <div class="clipboard-header">
-        <button class="paste-btn" id="pasteBtn">Paste</button>
+        <div class="paste-buttons">
+          <button class="paste-btn" id="pasteBtn">Paste Text</button>
+          <button class="paste-btn paste-image-btn" id="pasteImageBtn">Paste Image</button>
+        </div>
         <span class="clip-count" id="clipCount">0/5</span>
+      </div>
+      <div id="transferProgress" class="transfer-progress hidden">
+        <div class="transfer-progress-label" id="transferLabel">Preparing image...</div>
+        <div class="transfer-progress-bar"><div class="transfer-progress-fill" id="transferFill"></div></div>
       </div>
       <div class="clipboard-list" id="clipboardList">
         <div class="empty-state">No clipboard items</div>

@@ -89,6 +89,8 @@ fn main() {
             app.manage(state.clone());
             app.manage(CancellationToken::new());
             app.manage(commands::ClipboardItems::default());
+            app.manage(commands::ImageStore::default());
+            app.manage(commands::TransferLock::default());
 
             // Spawn event forwarder
             let app_handle = app.handle().clone();
@@ -126,6 +128,8 @@ fn main() {
             commands::get_clipboard_items,
             commands::send_clipboard_item,
             commands::remove_clipboard_item,
+            commands::paste_image_from_clipboard,
+            commands::send_image_item,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

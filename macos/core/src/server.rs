@@ -10,7 +10,7 @@ use tracing::{error, info, warn};
 use crate::clipboard;
 use crate::crypto::{self, NoiseTransport};
 use crate::events::{AppState, ServerEvent};
-use crate::protocol::{Message, MessageType};
+use crate::protocol::{Message, MessageType, IMAGE_CHUNK_SIZE, MAX_IMAGE_SIZE};
 
 /// Run the receiver server, accepting and handling one connection at a time.
 /// Supports graceful shutdown via CancellationToken.
@@ -74,6 +74,52 @@ pub async fn run_server(
     }
 }
 
+/// Send image as chunked messages through the session channel.
+pub async fn send_image_chunks(
+    tx: &mpsc::UnboundedSender<Message>,
+    png_bytes: &[u8],
+    width: u32,
+    height: u32,
+    state: &AppState,
+) -> Result<()> {
+    let total_bytes = png_bytes.len();
+    let metadata = serde_json::json!({
+        "width": width,
+        "height": height,
+        "totalBytes": total_bytes,
+        "mimeType": "image/png"
+    });
+    tx.send(Message::image_send_start(&metadata.to_string()))?;
+
+    let mut sent = 0usize;
+    for chunk in png_bytes.chunks(IMAGE_CHUNK_SIZE) {
+        tx.send(Message::image_chunk(chunk))?;
+        sent += chunk.len();
+        state.emit(ServerEvent::ImageTransferProgress {
+            bytes_transferred: sent as u64,
+            bytes_total: total_bytes as u64,
+        });
+    }
+
+    tx.send(Message::image_send_end())?;
+    info!(
+        "image send complete: {}x{}, {} bytes in {} chunks",
+        width,
+        height,
+        total_bytes,
+        total_bytes.div_ceil(IMAGE_CHUNK_SIZE)
+    );
+    Ok(())
+}
+
+/// State for tracking an in-progress image receive.
+struct ImageReceiveState {
+    width: u32,
+    height: u32,
+    total_bytes: usize,
+    buffer: Vec<u8>,
+}
+
 /// Handle an authenticated session with a connected device.
 async fn handle_session(
     mut transport: NoiseTransport,
@@ -117,6 +163,9 @@ async fn handle_session_loop(
 
     // Main message loop
     let keepalive = Duration::from_secs(30);
+    let mut image_receive: Option<ImageReceiveState> = None;
+    let mut last_sent_image_bytes: Option<usize> = None;
+
     loop {
         tokio::select! {
             result = transport.recv_message() => {
@@ -148,6 +197,92 @@ async fn handle_session_loop(
                     MessageType::Error => {
                         let text = msg.payload_text().unwrap_or_default();
                         warn!("remote error: {}", text);
+                        if image_receive.is_some() {
+                            info!("aborting in-progress image receive due to remote error");
+                            image_receive = None;
+                            state.emit(ServerEvent::ImageTransferFailed {
+                                reason: format!("remote error: {}", text),
+                            });
+                        }
+                    }
+                    MessageType::ImageSendStart => {
+                        let json_str = msg.payload_text()?;
+                        let meta: serde_json::Value = serde_json::from_str(&json_str)?;
+                        let width = meta["width"].as_u64().unwrap_or(0) as u32;
+                        let height = meta["height"].as_u64().unwrap_or(0) as u32;
+                        let total_bytes = meta["totalBytes"].as_u64().unwrap_or(0) as usize;
+
+                        if total_bytes > MAX_IMAGE_SIZE {
+                            warn!("image too large: {} bytes (max {})", total_bytes, MAX_IMAGE_SIZE);
+                            transport.send_message(&Message::error("image too large")).await?;
+                            continue;
+                        }
+                        if image_receive.is_some() {
+                            warn!("concurrent image transfer rejected");
+                            transport.send_message(&Message::error("transfer already in progress")).await?;
+                            continue;
+                        }
+
+                        info!("starting image receive: {}x{}, {} bytes", width, height, total_bytes);
+                        image_receive = Some(ImageReceiveState {
+                            width,
+                            height,
+                            total_bytes,
+                            buffer: Vec::with_capacity(total_bytes),
+                        });
+                        state.emit(ServerEvent::ImageTransferProgress {
+                            bytes_transferred: 0,
+                            bytes_total: total_bytes as u64,
+                        });
+                    }
+                    MessageType::ImageChunk => {
+                        if let Some(ref mut recv_state) = image_receive {
+                            if recv_state.buffer.len() + msg.payload.len() > MAX_IMAGE_SIZE {
+                                warn!("cumulative image data exceeds max size, aborting");
+                                image_receive = None;
+                                transport.send_message(&Message::error("image data exceeds max size")).await?;
+                                state.emit(ServerEvent::ImageTransferFailed {
+                                    reason: "cumulative data exceeds max size".to_string(),
+                                });
+                                continue;
+                            }
+                            recv_state.buffer.extend_from_slice(&msg.payload);
+                            state.emit(ServerEvent::ImageTransferProgress {
+                                bytes_transferred: recv_state.buffer.len() as u64,
+                                bytes_total: recv_state.total_bytes as u64,
+                            });
+                        } else {
+                            warn!("unexpected IMAGE_CHUNK without active transfer");
+                            transport.send_message(&Message::error("no active image transfer")).await?;
+                        }
+                    }
+                    MessageType::ImageSendEnd => {
+                        if let Some(recv_state) = image_receive.take() {
+                            info!("image receive complete, writing to clipboard ({}x{}, {} bytes)",
+                                recv_state.width, recv_state.height, recv_state.buffer.len());
+                            if let Err(e) = clipboard::set_clipboard_image(&recv_state.buffer) {
+                                error!("failed to set clipboard image: {}", e);
+                                transport.send_message(&Message::error(&format!("clipboard error: {}", e))).await?;
+                                state.emit(ServerEvent::ImageTransferFailed {
+                                    reason: e.to_string(),
+                                });
+                            } else {
+                                transport.send_message(&Message::image_ack()).await?;
+                                state.emit(ServerEvent::ImageReceived {
+                                    width: recv_state.width,
+                                    height: recv_state.height,
+                                    bytes: recv_state.buffer.len(),
+                                });
+                            }
+                        } else {
+                            warn!("unexpected IMAGE_SEND_END without active transfer");
+                            transport.send_message(&Message::error("no active image transfer")).await?;
+                        }
+                    }
+                    MessageType::ImageAck => {
+                        let bytes = last_sent_image_bytes.take().unwrap_or(0);
+                        info!("received image ACK from remote ({} bytes)", bytes);
+                        state.emit(ServerEvent::ImageSent { bytes });
                     }
                     _ => {
                         warn!("unexpected message type: {:?}", msg.msg_type);
@@ -155,6 +290,13 @@ async fn handle_session_loop(
                 }
             }
             Some(outbound_msg) = rx.recv() => {
+                if outbound_msg.msg_type == MessageType::ImageSendStart {
+                    if let Ok(json_str) = outbound_msg.payload_text() {
+                        if let Ok(meta) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                            last_sent_image_bytes = meta["totalBytes"].as_u64().map(|b| b as usize);
+                        }
+                    }
+                }
                 transport.send_message(&outbound_msg).await?;
             }
             _ = time::sleep(keepalive) => {

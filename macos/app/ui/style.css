@@ -114,6 +114,11 @@ header {
   margin-bottom: 8px;
 }
 
+.paste-buttons {
+  display: flex;
+  gap: 4px;
+}
+
 .paste-btn {
   background: #cba6f7;
   color: #1e1e2e;
@@ -124,6 +129,10 @@ header {
   padding: 5px 12px;
   cursor: pointer;
   transition: opacity 0.15s;
+}
+
+.paste-image-btn {
+  background: #89b4fa;
 }
 
 .paste-btn:hover {
@@ -295,4 +304,51 @@ footer {
   font-size: 10px;
   color: #45475a;
   font-family: "SF Mono", Menlo, monospace;
+}
+
+/* Transfer Progress */
+.transfer-progress {
+  background: #181825;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+}
+
+.transfer-progress.hidden {
+  display: none;
+}
+
+.transfer-progress-label {
+  font-size: 11px;
+  color: #cdd6f4;
+  margin-bottom: 4px;
+}
+
+.transfer-progress-bar {
+  height: 4px;
+  background: #313244;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.transfer-progress-fill {
+  height: 100%;
+  background: #89b4fa;
+  border-radius: 2px;
+  width: 0%;
+  transition: width 0.2s ease;
+}
+
+.transfer-progress-fill.indeterminate {
+  width: 100%;
+  animation: indeterminate 1.5s infinite ease-in-out;
+}
+
+@keyframes indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.clipboard-item-image .clipboard-item-preview {
+  color: #89b4fa;
 }
