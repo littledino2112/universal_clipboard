@@ -194,7 +194,7 @@ fn toggle_panel(app: &AppHandle) {
     } else {
         let _window = WebviewWindowBuilder::new(app, "panel", WebviewUrl::default())
             .title("Universal Clipboard")
-            .inner_size(320.0, 560.0)
+            .inner_size(320.0, 640.0)
             .resizable(false)
             .decorations(false)
             .always_on_top(true)

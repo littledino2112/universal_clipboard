@@ -19,12 +19,25 @@
     <section class="pairing-section">
       <div class="section-label">Pairing Code</div>
       <div class="pairing-code" id="pairingCode">------</div>
-      <div class="pairing-hint">Enter this code on your Android device</div>
+      <div class="pairing-hint">Enter this code on the connecting device</div>
     </section>
 
     <section class="connection-section" id="connectionSection" style="display:none">
       <div class="section-label">Connected</div>
       <div class="connected-device" id="connectedDevice"></div>
+    </section>
+
+    <section class="connect-section" id="connectSection">
+      <div class="section-label connect-toggle" id="connectToggle">Connect to Mac <span class="toggle-arrow" id="toggleArrow">&#9662;</span></div>
+      <div class="connect-form" id="connectForm" style="display:none">
+        <input type="text" class="connect-input" id="connectHost" placeholder="IP address or hostname">
+        <input type="text" class="connect-input connect-input-short" id="connectPort" placeholder="Port" value="9876">
+        <input type="text" class="connect-input" id="connectPairingCode" placeholder="Pairing code (first time only)">
+        <div class="connect-actions">
+          <button class="connect-btn" id="connectBtn">Connect</button>
+          <span class="connect-status" id="connectStatus"></span>
+        </div>
+      </div>
     </section>
 
     <section class="clipboard-section">

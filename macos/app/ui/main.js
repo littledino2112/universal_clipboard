@@ -16,6 +16,14 @@ const clipCount = document.getElementById("clipCount");
 const transferProgress = document.getElementById("transferProgress");
 const transferLabel = document.getElementById("transferLabel");
 const transferFill = document.getElementById("transferFill");
+const connectToggle = document.getElementById("connectToggle");
+const toggleArrow = document.getElementById("toggleArrow");
+const connectForm = document.getElementById("connectForm");
+const connectHost = document.getElementById("connectHost");
+const connectPort = document.getElementById("connectPort");
+const connectPairingCode = document.getElementById("connectPairingCode");
+const connectBtn = document.getElementById("connectBtn");
+const connectStatus = document.getElementById("connectStatus");
 
 let isConnected = false;
 let isTransferActive = false;
@@ -39,6 +47,7 @@ async function loadStatus() {
       connectionSection.style.display = "none";
       isConnected = false;
     }
+    updateConnectBtn();
   } catch (e) {
     console.error("Failed to load status:", e);
   }
@@ -215,6 +224,56 @@ function escapeAttr(str) {
   return str.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
+// Connect to Mac toggle
+connectToggle.addEventListener("click", () => {
+  const isOpen = connectForm.style.display !== "none";
+  connectForm.style.display = isOpen ? "none" : "flex";
+  toggleArrow.classList.toggle("open", !isOpen);
+});
+
+// Connect to Mac button
+connectBtn.addEventListener("click", async () => {
+  const host = connectHost.value.trim();
+  const port = parseInt(connectPort.value.trim(), 10);
+  const code = connectPairingCode.value.trim();
+
+  if (!host) {
+    connectStatus.textContent = "Enter a host";
+    connectStatus.className = "connect-status error";
+    return;
+  }
+  if (isNaN(port) || port < 1 || port > 65535) {
+    connectStatus.textContent = "Invalid port";
+    connectStatus.className = "connect-status error";
+    return;
+  }
+
+  connectBtn.disabled = true;
+  connectBtn.textContent = "Connecting...";
+  connectStatus.textContent = "";
+  connectStatus.className = "connect-status";
+
+  try {
+    await invoke("connect_to_device", {
+      host,
+      port,
+      pairingCode: code || null,
+    });
+    connectStatus.textContent = "Connected!";
+    connectStatus.className = "connect-status success";
+  } catch (e) {
+    connectStatus.textContent = String(e);
+    connectStatus.className = "connect-status error";
+  } finally {
+    connectBtn.textContent = "Connect";
+    updateConnectBtn();
+  }
+});
+
+function updateConnectBtn() {
+  connectBtn.disabled = isConnected;
+}
+
 listen("server-event", (event) => {
   const data = event.payload;
   switch (data.type) {
@@ -231,6 +290,7 @@ listen("server-event", (event) => {
       connectedDevice.textContent = data.data.name;
       isConnected = true;
       updateSendButtons();
+      updateConnectBtn();
       loadDevices();
       break;
     case "DeviceDisconnected":
@@ -239,6 +299,7 @@ listen("server-event", (event) => {
       connectionSection.style.display = "none";
       isConnected = false;
       updateSendButtons();
+      updateConnectBtn();
       break;
     case "ClipboardReceived":
       break;
