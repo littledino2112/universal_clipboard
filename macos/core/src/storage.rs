@@ -16,7 +16,7 @@ struct StoredIdentity {
     public_key: String,  // hex
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 struct StoredDevice {
     public_key: String, // hex
     #[serde(default)]
@@ -25,7 +25,35 @@ struct StoredDevice {
     port: Option<u16>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+/// Handles deserialization of both the legacy format (plain string = public_key hex)
+/// and the new format (StoredDevice object with optional host/port).
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum StoredDeviceCompat {
+    Full(StoredDevice),
+    Legacy(String),
+}
+
+impl StoredDeviceCompat {
+    fn into_stored_device(self) -> StoredDevice {
+        match self {
+            StoredDeviceCompat::Full(d) => d,
+            StoredDeviceCompat::Legacy(public_key) => StoredDevice {
+                public_key,
+                host: None,
+                port: None,
+            },
+        }
+    }
+}
+
+/// Intermediate struct for deserializing paired_devices.json with backward compatibility.
+#[derive(serde::Deserialize)]
+struct PairedDevicesCompat {
+    devices: HashMap<String, StoredDeviceCompat>,
+}
+
+#[derive(serde::Serialize)]
 struct PairedDevices {
     devices: HashMap<String, StoredDevice>,
 }
@@ -83,8 +111,13 @@ impl DeviceStore {
             });
         }
         let data = fs::read_to_string(&path)?;
-        let devices: PairedDevices = serde_json::from_str(&data)?;
-        Ok(devices)
+        let compat: PairedDevicesCompat = serde_json::from_str(&data)?;
+        let devices = compat
+            .devices
+            .into_iter()
+            .map(|(name, entry)| (name, entry.into_stored_device()))
+            .collect();
+        Ok(PairedDevices { devices })
     }
 
     fn save_paired_devices(&self, devices: &PairedDevices) -> Result<()> {
@@ -278,6 +311,31 @@ mod tests {
             .unwrap();
         let addr = store.get_device_addr("mac-1").unwrap();
         assert_eq!(addr, Some(("10.0.0.5".to_string(), 1234)));
+    }
+
+    #[test]
+    fn test_load_legacy_format() {
+        let dir = TempDir::new().unwrap();
+        let store = DeviceStore::new(dir.path().to_path_buf()).unwrap();
+
+        // Write a paired_devices.json in the old format (plain string values)
+        let legacy_json = r#"{"devices":{"phone":"01020304"}}"#;
+        std::fs::write(store.devices_path(), legacy_json).unwrap();
+
+        // Should load without error
+        let devices = store.list_paired_devices().unwrap();
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].0, "phone");
+        assert_eq!(devices[0].1, "01020304");
+
+        // find_device_by_key should work
+        let found = store.find_device_by_key(&[0x01, 0x02, 0x03, 0x04]).unwrap();
+        assert_eq!(found, Some("phone".to_string()));
+
+        // Saving a new device should migrate the file to the new format
+        store.save_paired_device("tablet", &[0x05, 0x06]).unwrap();
+        let devices = store.list_paired_devices().unwrap();
+        assert_eq!(devices.len(), 2);
     }
 
     #[test]
