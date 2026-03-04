@@ -103,4 +103,68 @@ class ClipboardItemTest {
         assertTrue(sent is ClipboardItem.ImageItem)
         assertEquals(item.id, sent.id)
     }
+
+    @Test
+    fun `image item equality uses content comparison for bytes`() {
+        val bytes1 = byteArrayOf(1, 2, 3)
+        val bytes2 = byteArrayOf(1, 2, 3)
+        val item1 = ClipboardItem.ImageItem(
+            id = 100,
+            pngBytes = bytes1,
+            width = 10,
+            height = 20,
+            sizeBytes = 3
+        )
+        val item2 = ClipboardItem.ImageItem(
+            id = 100,
+            pngBytes = bytes2,
+            width = 10,
+            height = 20,
+            sizeBytes = 3
+        )
+        assertEquals(item1, item2)
+        assertEquals(item1.hashCode(), item2.hashCode())
+    }
+
+    @Test
+    fun `image item inequality for different bytes`() {
+        val item1 = ClipboardItem.ImageItem(
+            id = 100,
+            pngBytes = byteArrayOf(1, 2, 3),
+            width = 10,
+            height = 20,
+            sizeBytes = 3
+        )
+        val item2 = ClipboardItem.ImageItem(
+            id = 100,
+            pngBytes = byteArrayOf(4, 5, 6),
+            width = 10,
+            height = 20,
+            sizeBytes = 3
+        )
+        assertNotEquals(item1, item2)
+    }
+
+    @Test
+    fun `image item default sent is false`() {
+        val item = ClipboardItem.ImageItem(
+            pngBytes = byteArrayOf(1),
+            width = 1,
+            height = 1,
+            sizeBytes = 1
+        )
+        assertFalse(item.sent)
+    }
+
+    @Test
+    fun `image item preview for small image`() {
+        val pngBytes = ByteArray(512)
+        val item = ClipboardItem.ImageItem(
+            pngBytes = pngBytes,
+            width = 64,
+            height = 64,
+            sizeBytes = pngBytes.size.toLong()
+        )
+        assertEquals("Image (64x64, 0 KB)", item.preview())
+    }
 }
