@@ -203,22 +203,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 // F1 fix: track bitmaps for recycling
-                var scaledBitmap = bitmap
+                var scaledBitmap: Bitmap = bitmap
                 var pngBytes = bitmapToPng(scaledBitmap)
 
                 while (pngBytes.size > MAX_IMAGE_SIZE && scaledBitmap.width > 100) {
                     val newWidth = scaledBitmap.width / 2
                     val newHeight = scaledBitmap.height / 2
-                    val prev = scaledBitmap
+                    val prev: Bitmap = scaledBitmap
                     scaledBitmap = Bitmap.createScaledBitmap(
                         prev, newWidth, newHeight, true
                     )
-                    if (prev !== bitmap) prev.recycle()
+                    if (prev != bitmap) prev.recycle()
                     pngBytes = bitmapToPng(scaledBitmap)
                 }
 
                 if (pngBytes.size > MAX_IMAGE_SIZE) {
-                    if (scaledBitmap !== bitmap) scaledBitmap.recycle()
+                    if (scaledBitmap != bitmap) scaledBitmap.recycle()
                     bitmap.recycle()
                     _uiState.update {
                         it.copy(snackbarMessage = "Image too large to send")
@@ -228,7 +228,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 val finalWidth = scaledBitmap.width
                 val finalHeight = scaledBitmap.height
-                if (scaledBitmap !== bitmap) scaledBitmap.recycle()
+                if (scaledBitmap != bitmap) scaledBitmap.recycle()
                 bitmap.recycle()
 
                 addImageItem(pngBytes, finalWidth, finalHeight)
