@@ -1,3 +1,8 @@
+## v0.8.0 (2026-03-04)
+
+### Features
+- feat(macos): add Mac-to-Mac connectivity support (#18)
+
 ## v0.7.0 (2026-03-04)
 
 ### Features
