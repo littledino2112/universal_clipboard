@@ -7,6 +7,8 @@ use serde::Serialize;
 use tauri::State;
 use tokio::sync::{Mutex, RwLock};
 
+use tokio_util::sync::CancellationToken;
+
 use uclip_core::clipboard;
 use uclip_core::events::AppState;
 use uclip_core::protocol::Message;
@@ -103,6 +105,69 @@ pub async fn unpair_device(state: State<'_, Arc<AppState>>, name: String) -> Res
         .store
         .remove_paired_device(&name)
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn connect_to_device(
+    host: String,
+    port: u16,
+    pairing_code: Option<String>,
+    state: State<'_, Arc<AppState>>,
+    cancel: State<'_, CancellationToken>,
+) -> Result<(), String> {
+    let addr = format!("{}:{}", host, port);
+
+    let remote_key: Option<Vec<u8>> = if pairing_code.is_none() {
+        find_known_device_key_by_addr(&state.store, &host, port)
+    } else {
+        None
+    };
+
+    let pairing_ref = pairing_code.clone();
+    let state_clone = state.inner().clone();
+    let cancel_clone = cancel.inner().clone();
+
+    // Clone identity fields to avoid borrow conflict with state_clone move
+    let identity_clone = uclip_core::crypto::Identity {
+        private_key: state_clone.identity.private_key.clone(),
+        public_key: state_clone.identity.public_key.clone(),
+    };
+
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = uclip_core::client::connect(
+            &addr,
+            &identity_clone,
+            pairing_ref.as_deref(),
+            remote_key.as_deref(),
+            state_clone,
+            cancel_clone,
+        )
+        .await
+        {
+            tracing::error!("connect_to_device failed: {}", e);
+        }
+    });
+
+    Ok(())
+}
+
+fn find_known_device_key_by_addr(
+    store: &uclip_core::storage::DeviceStore,
+    host: &str,
+    port: u16,
+) -> Option<Vec<u8>> {
+    store
+        .list_paired_devices()
+        .ok()?
+        .into_iter()
+        .find_map(|(name, key_hex)| {
+            let addr = store.get_device_addr(&name).ok()??;
+            if addr.0 == host && addr.1 == port {
+                hex::decode(key_hex).ok()
+            } else {
+                None
+            }
+        })
 }
 
 #[tauri::command]

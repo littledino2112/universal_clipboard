@@ -39,6 +39,23 @@ enum Commands {
         /// Name of the device to unpair
         name: String,
     },
+    /// Connect to another Mac as the initiator
+    Connect {
+        /// Target host (IP or hostname)
+        host: String,
+
+        /// Target port
+        #[arg(short, long, default_value_t = 9876)]
+        port: u16,
+
+        /// Pairing code displayed on the remote Mac (omit if already paired)
+        #[arg(short = 'c', long)]
+        pairing_code: Option<String>,
+
+        /// Device name for this Mac (local identity)
+        #[arg(short = 'n', long, default_value = "My Mac")]
+        name: String,
+    },
     /// Reset identity (generates new keypair, removes all pairings)
     Reset,
 }
@@ -83,6 +100,59 @@ async fn main() -> Result<()> {
             // Start TCP listener
             let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await?;
             server::run_server(listener, state, cancel).await?;
+        }
+
+        Commands::Connect {
+            host,
+            port,
+            pairing_code,
+            name,
+        } => {
+            let identity = crypto::Identity::load_or_generate(&store)?;
+            let pairing_code_ref = pairing_code.as_deref();
+            let addr = format!("{}:{}", host, port);
+
+            println!("Connecting to {} ...", addr);
+
+            let state = Arc::new(AppState::new(
+                identity,
+                crypto::generate_pairing_code(),
+                name,
+                store,
+                port,
+            ));
+
+            let cancel = CancellationToken::new();
+
+            // Ctrl-C handler
+            let cancel_clone = cancel.clone();
+            tokio::spawn(async move {
+                tokio::signal::ctrl_c().await.ok();
+                cancel_clone.cancel();
+            });
+
+            // Subscribe to events for terminal output
+            let mut rx = state.subscribe();
+            tokio::spawn(async move {
+                while let Ok(event) = rx.recv().await {
+                    println!("[event] {:?}", event);
+                }
+            });
+
+            let identity_clone = crypto::Identity {
+                private_key: state.identity.private_key.clone(),
+                public_key: state.identity.public_key.clone(),
+            };
+
+            uclip_core::client::connect(
+                &addr,
+                &identity_clone,
+                pairing_code_ref,
+                None,
+                state,
+                cancel,
+            )
+            .await?;
         }
 
         Commands::Status => {

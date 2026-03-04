@@ -124,6 +124,7 @@ fn main() {
             commands::get_status,
             commands::get_devices,
             commands::unpair_device,
+            commands::connect_to_device,
             commands::paste_clipboard,
             commands::get_clipboard_items,
             commands::send_clipboard_item,

@@ -17,8 +17,17 @@ struct StoredIdentity {
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
+struct StoredDevice {
+    public_key: String, // hex
+    #[serde(default)]
+    host: Option<String>,
+    #[serde(default)]
+    port: Option<u16>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
 struct PairedDevices {
-    devices: HashMap<String, String>, // name -> public_key (hex)
+    devices: HashMap<String, StoredDevice>,
 }
 
 impl DeviceStore {
@@ -86,18 +95,53 @@ impl DeviceStore {
 
     pub fn save_paired_device(&self, name: &str, public_key: &[u8]) -> Result<()> {
         let mut devices = self.load_paired_devices()?;
-        devices
-            .devices
-            .insert(name.to_string(), hex::encode(public_key));
+        devices.devices.insert(
+            name.to_string(),
+            StoredDevice {
+                public_key: hex::encode(public_key),
+                host: None,
+                port: None,
+            },
+        );
         self.save_paired_devices(&devices)?;
         Ok(())
+    }
+
+    pub fn save_paired_device_with_addr(
+        &self,
+        name: &str,
+        public_key: &[u8],
+        host: &str,
+        port: u16,
+    ) -> Result<()> {
+        let mut devices = self.load_paired_devices()?;
+        devices.devices.insert(
+            name.to_string(),
+            StoredDevice {
+                public_key: hex::encode(public_key),
+                host: Some(host.to_string()),
+                port: Some(port),
+            },
+        );
+        self.save_paired_devices(&devices)?;
+        Ok(())
+    }
+
+    pub fn get_device_addr(&self, name: &str) -> Result<Option<(String, u16)>> {
+        let devices = self.load_paired_devices()?;
+        if let Some(device) = devices.devices.get(name) {
+            if let (Some(host), Some(port)) = (&device.host, device.port) {
+                return Ok(Some((host.clone(), port)));
+            }
+        }
+        Ok(None)
     }
 
     pub fn find_device_by_key(&self, public_key: &[u8]) -> Result<Option<String>> {
         let devices = self.load_paired_devices()?;
         let key_hex = hex::encode(public_key);
-        for (name, stored_key) in &devices.devices {
-            if *stored_key == key_hex {
+        for (name, stored) in &devices.devices {
+            if stored.public_key == key_hex {
                 return Ok(Some(name.clone()));
             }
         }
@@ -106,7 +150,11 @@ impl DeviceStore {
 
     pub fn list_paired_devices(&self) -> Result<Vec<(String, String)>> {
         let devices = self.load_paired_devices()?;
-        Ok(devices.devices.into_iter().collect())
+        Ok(devices
+            .devices
+            .into_iter()
+            .map(|(name, stored)| (name, stored.public_key))
+            .collect())
     }
 
     pub fn remove_paired_device(&self, name: &str) -> Result<bool> {
@@ -199,6 +247,37 @@ mod tests {
         store.remove_paired_device("tablet").unwrap();
         assert!(store.find_device_by_key(&[4, 5, 6]).unwrap().is_none());
         assert_eq!(store.list_paired_devices().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_save_and_retrieve_device_addr() {
+        let (_dir, store) = test_store();
+        store
+            .save_paired_device_with_addr("mac-1", &[1, 2, 3], "192.168.1.10", 9876)
+            .unwrap();
+        let addr = store.get_device_addr("mac-1").unwrap();
+        assert_eq!(addr, Some(("192.168.1.10".to_string(), 9876)));
+    }
+
+    #[test]
+    fn test_save_device_addr_backward_compat() {
+        let (_dir, store) = test_store();
+        store.save_paired_device("mac-1", &[1, 2, 3]).unwrap();
+        let addr = store.get_device_addr("mac-1").unwrap();
+        assert_eq!(addr, None);
+    }
+
+    #[test]
+    fn test_save_device_addr_overwrites() {
+        let (_dir, store) = test_store();
+        store
+            .save_paired_device_with_addr("mac-1", &[1, 2, 3], "192.168.1.10", 9876)
+            .unwrap();
+        store
+            .save_paired_device_with_addr("mac-1", &[1, 2, 3], "10.0.0.5", 1234)
+            .unwrap();
+        let addr = store.get_device_addr("mac-1").unwrap();
+        assert_eq!(addr, Some(("10.0.0.5".to_string(), 1234)));
     }
 
     #[test]
