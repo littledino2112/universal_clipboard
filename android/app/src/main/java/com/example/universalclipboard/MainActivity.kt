@@ -7,22 +7,31 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.universalclipboard.ui.MainViewModel
 import com.example.universalclipboard.ui.screens.MainScreen
 import com.example.universalclipboard.ui.theme.UniversalClipboardTheme
 
 class MainActivity : ComponentActivity() {
 
+    private val viewModel: MainViewModel by viewModels()
+
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { /* granted or not, service will work either way */ }
+
+    private val imagePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        uri?.let { viewModel.importImage(it) }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -32,7 +41,6 @@ class MainActivity : ComponentActivity() {
         setContent {
             UniversalClipboardTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    val viewModel: MainViewModel = viewModel()
                     val uiState = viewModel.uiState.collectAsStateWithLifecycle()
 
                     MainScreen(
@@ -40,6 +48,13 @@ class MainActivity : ComponentActivity() {
                         onPasteFromClipboard = viewModel::addClipboardItem,
                         onSendItem = viewModel::sendClipboardItem,
                         onDeleteItem = viewModel::removeClipboardItem,
+                        onPickImage = {
+                            imagePickerLauncher.launch(
+                                PickVisualMediaRequest(
+                                    ActivityResultContracts.PickVisualMedia.ImageOnly
+                                )
+                            )
+                        },
                         onPairingCodeChange = viewModel::updatePairingCode,
                         onManualIpChange = viewModel::updateManualIp,
                         onManualPortChange = viewModel::updateManualPort,

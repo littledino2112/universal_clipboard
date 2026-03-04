@@ -5,7 +5,11 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.IBinder
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.universalclipboard.crypto.IdentityManager
@@ -13,6 +17,8 @@ import com.example.universalclipboard.crypto.PairedDevice
 import com.example.universalclipboard.data.ClipboardItem
 import com.example.universalclipboard.network.*
 import com.example.universalclipboard.service.ClipboardSyncService
+import java.io.ByteArrayOutputStream
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -51,7 +57,10 @@ data class MainUiState(
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
+        private const val TAG = "MainViewModel"
         private const val MAX_CLIPBOARD_ITEMS = 10
+        private const val MAX_IMAGE_SIZE = 25 * 1024 * 1024 // 25 MB protocol limit
+        private const val MAX_DECODE_PIXELS = 4096 * 4096 // subsample if larger
     }
 
     private val identityManager = IdentityManager(application)
@@ -149,6 +158,99 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             state.copy(clipboardItems = items)
         }
+    }
+
+    fun importImage(uri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val context = getApplication<Application>()
+
+                // F3 fix: decode bounds first, then subsample to avoid OOM
+                val options = BitmapFactory.Options().apply {
+                    inJustDecodeBounds = true
+                }
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    BitmapFactory.decodeStream(stream, null, options)
+                }
+                if (options.outWidth <= 0 || options.outHeight <= 0) {
+                    _uiState.update {
+                        it.copy(snackbarMessage = "Could not read image")
+                    }
+                    return@launch
+                }
+
+                // Calculate inSampleSize to keep decoded bitmap reasonable
+                var sampleSize = 1
+                var w = options.outWidth
+                var h = options.outHeight
+                while (w * h > MAX_DECODE_PIXELS) {
+                    sampleSize *= 2
+                    w /= 2
+                    h /= 2
+                }
+
+                val decodeOptions = BitmapFactory.Options().apply {
+                    inSampleSize = sampleSize
+                }
+                val bitmap = context.contentResolver.openInputStream(uri)?.use { stream ->
+                    BitmapFactory.decodeStream(stream, null, decodeOptions)
+                }
+                if (bitmap == null) {
+                    _uiState.update {
+                        it.copy(snackbarMessage = "Could not decode image")
+                    }
+                    return@launch
+                }
+
+                // F1 fix: track bitmaps for recycling
+                var scaledBitmap = bitmap
+                var pngBytes = bitmapToPng(scaledBitmap)
+
+                while (pngBytes.size > MAX_IMAGE_SIZE && scaledBitmap.width > 100) {
+                    val newWidth = scaledBitmap.width / 2
+                    val newHeight = scaledBitmap.height / 2
+                    val prev = scaledBitmap
+                    scaledBitmap = Bitmap.createScaledBitmap(
+                        prev, newWidth, newHeight, true
+                    )
+                    if (prev !== bitmap) prev.recycle()
+                    pngBytes = bitmapToPng(scaledBitmap)
+                }
+
+                if (pngBytes.size > MAX_IMAGE_SIZE) {
+                    if (scaledBitmap !== bitmap) scaledBitmap.recycle()
+                    bitmap.recycle()
+                    _uiState.update {
+                        it.copy(snackbarMessage = "Image too large to send")
+                    }
+                    return@launch
+                }
+
+                val finalWidth = scaledBitmap.width
+                val finalHeight = scaledBitmap.height
+                if (scaledBitmap !== bitmap) scaledBitmap.recycle()
+                bitmap.recycle()
+
+                addImageItem(pngBytes, finalWidth, finalHeight)
+            } catch (e: CancellationException) {
+                throw e // F8 fix: never swallow CancellationException
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to import image", e)
+                _uiState.update {
+                    it.copy(
+                        snackbarMessage = "Failed to import image: ${e.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    // F11 fix: pre-size the output buffer based on bitmap dimensions
+    private fun bitmapToPng(bitmap: Bitmap): ByteArray {
+        val estimatedSize = (bitmap.width * bitmap.height * 4) / 2
+        val stream = ByteArrayOutputStream(estimatedSize.coerceAtMost(MAX_IMAGE_SIZE))
+        bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+        return stream.toByteArray()
     }
 
     fun removeClipboardItem(id: Long) {

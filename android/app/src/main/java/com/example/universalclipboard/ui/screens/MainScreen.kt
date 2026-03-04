@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.*
@@ -31,6 +32,7 @@ fun MainScreen(
     onPasteFromClipboard: (String) -> Unit,
     onSendItem: (Long) -> Unit,
     onDeleteItem: (Long) -> Unit,
+    onPickImage: () -> Unit,
     onPairingCodeChange: (String) -> Unit,
     onManualIpChange: (String) -> Unit,
     onManualPortChange: (String) -> Unit,
@@ -106,15 +108,26 @@ fun MainScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    val text = clipboardManager.getText()?.text
-                    if (text != null) {
-                        onPasteFromClipboard(text)
-                    }
-                }
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Icon(Icons.Default.ContentPaste, contentDescription = "Paste from clipboard")
+                SmallFloatingActionButton(onClick = onPickImage) {
+                    Icon(Icons.Default.Image, contentDescription = "Pick image")
+                }
+                FloatingActionButton(
+                    onClick = {
+                        val text = clipboardManager.getText()?.text
+                        if (text != null) {
+                            onPasteFromClipboard(text)
+                        }
+                    }
+                ) {
+                    Icon(
+                        Icons.Default.ContentPaste,
+                        contentDescription = "Paste from clipboard"
+                    )
+                }
             }
         }
     ) { padding ->
