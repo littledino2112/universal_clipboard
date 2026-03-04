@@ -1,3 +1,8 @@
+## v0.7.0 (2026-03-04)
+
+### Features
+- feat(android): add image picker for importing images to clipboard (#17)
+
 ## v0.6.0 (2026-02-26)
 
 ### Features
