@@ -4489,6 +4489,7 @@ name = "uclip-app"
 version = "0.7.0"
 dependencies = [
  "anyhow",
+ "hex",
  "serde",
  "serde_json",
  "tauri",

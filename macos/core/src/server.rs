@@ -121,7 +121,7 @@ struct ImageReceiveState {
 }
 
 /// Handle an authenticated session with a connected device.
-async fn handle_session(
+pub(crate) async fn handle_session(
     mut transport: NoiseTransport,
     state: &AppState,
     cancel: &CancellationToken,

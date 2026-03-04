@@ -124,6 +124,7 @@ fn main() {
             commands::get_status,
             commands::get_devices,
             commands::unpair_device,
+            commands::connect_to_device,
             commands::paste_clipboard,
             commands::get_clipboard_items,
             commands::send_clipboard_item,
@@ -193,7 +194,7 @@ fn toggle_panel(app: &AppHandle) {
     } else {
         let _window = WebviewWindowBuilder::new(app, "panel", WebviewUrl::default())
             .title("Universal Clipboard")
-            .inner_size(320.0, 560.0)
+            .inner_size(320.0, 640.0)
             .resizable(false)
             .decorations(false)
             .always_on_top(true)

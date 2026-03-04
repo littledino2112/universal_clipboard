@@ -201,6 +201,129 @@ pub async fn handshake_paired_responder(
     Ok(NoiseTransport { transport, stream })
 }
 
+/// Perform a Noise XXpsk0 handshake as the initiator (connecting Mac).
+/// Sends HANDSHAKE_PAIRING prefix byte, then executes 3-message XXpsk0.
+/// Returns the transport and the remote's static public key.
+pub async fn handshake_pairing_initiator(
+    mut stream: TcpStream,
+    identity: &Identity,
+    pairing_code: &str,
+) -> Result<(NoiseTransport, Vec<u8>)> {
+    let psk = derive_psk_from_code(pairing_code);
+
+    // Write handshake type prefix
+    stream.write_u8(HANDSHAKE_PAIRING).await?;
+
+    let builder = Builder::new(NOISE_PATTERN_PAIRING.parse()?)
+        .local_private_key(&identity.private_key)
+        .psk(0, &psk);
+    let mut handshake = builder.build_initiator()?;
+    let mut buf = vec![0u8; MAX_NOISE_MSG_LEN];
+
+    // -> psk, e (write message 1)
+    debug!("pairing initiator: sending message 1");
+    let len = handshake.write_message(&[], &mut buf)?;
+    stream.write_u16(len as u16).await?;
+    stream.write_all(&buf[..len]).await?;
+    stream.flush().await?;
+
+    // <- e, ee, s, es (read message 2)
+    debug!("pairing initiator: waiting for message 2");
+    let len = stream.read_u16().await? as usize;
+    let mut msg = vec![0u8; len];
+    stream.read_exact(&mut msg).await?;
+    handshake.read_message(&msg, &mut buf)?;
+
+    // -> s, se (write message 3)
+    debug!("pairing initiator: sending message 3");
+    let len = handshake.write_message(&[], &mut buf)?;
+    stream.write_u16(len as u16).await?;
+    stream.write_all(&buf[..len]).await?;
+    stream.flush().await?;
+
+    let remote_static = handshake
+        .get_remote_static()
+        .context("no remote static key after handshake")?
+        .to_vec();
+
+    info!(
+        "pairing initiator handshake complete, remote key: {}",
+        hex::encode(&remote_static)
+    );
+
+    let transport = handshake.into_transport_mode()?;
+    Ok((NoiseTransport { transport, stream }, remote_static))
+}
+
+/// Perform a Noise KK handshake as the initiator for a paired device.
+/// Sends HANDSHAKE_PAIRED prefix byte + 32-byte local public key for identification.
+pub async fn handshake_paired_initiator(
+    mut stream: TcpStream,
+    identity: &Identity,
+    remote_static_key: &[u8],
+) -> Result<NoiseTransport> {
+    // Write handshake type prefix
+    stream.write_u8(HANDSHAKE_PAIRED).await?;
+    // Write our public key so responder can identify us
+    stream.write_all(&identity.public_key).await?;
+    stream.flush().await?;
+
+    let builder = Builder::new(NOISE_PATTERN_PAIRED.parse()?)
+        .local_private_key(&identity.private_key)
+        .remote_public_key(remote_static_key);
+    let mut handshake = builder.build_initiator()?;
+    let mut buf = vec![0u8; MAX_NOISE_MSG_LEN];
+
+    // -> e, es, ss (write message 1)
+    debug!("paired initiator: sending message 1");
+    let len = handshake.write_message(&[], &mut buf)?;
+    stream.write_u16(len as u16).await?;
+    stream.write_all(&buf[..len]).await?;
+    stream.flush().await?;
+
+    // <- e, ee, se (read message 2)
+    debug!("paired initiator: waiting for message 2");
+    let len = stream.read_u16().await? as usize;
+    let mut msg = vec![0u8; len];
+    stream.read_exact(&mut msg).await?;
+    handshake.read_message(&msg, &mut buf)?;
+
+    info!("paired initiator handshake complete");
+    let transport = handshake.into_transport_mode()?;
+    Ok(NoiseTransport { transport, stream })
+}
+
+/// Initiate a connection to a remote Mac.
+/// Dispatches to pairing or paired handshake based on whether the device is known.
+pub async fn connect_to_peer(
+    stream: TcpStream,
+    identity: &Identity,
+    pairing_code: Option<&str>,
+    store: &DeviceStore,
+    remote_public_key: Option<&[u8]>,
+) -> Result<(NoiseTransport, String)> {
+    match (pairing_code, remote_public_key) {
+        (Some(code), _) => {
+            let (transport, remote_key) =
+                handshake_pairing_initiator(stream, identity, code).await?;
+            let device_name = format!("device-{}", hex::encode(&remote_key[..4]));
+            // Save the pairing (addr will be saved by the caller if needed)
+            store.save_paired_device(&device_name, &remote_key)?;
+            Ok((transport, device_name))
+        }
+        (None, Some(key)) => {
+            let transport = handshake_paired_initiator(stream, identity, key).await?;
+            let device_name = store
+                .find_device_by_key(key)?
+                .unwrap_or_else(|| "unknown-device".to_string());
+            Ok((transport, device_name))
+        }
+        (None, None) => {
+            bail!("must supply either pairing_code or remote_public_key")
+        }
+    }
+}
+
 /// Determine the handshake type and dispatch accordingly.
 pub async fn accept_connection(
     mut stream: TcpStream,
@@ -417,6 +540,105 @@ mod tests {
             .read_message(&buf1[..len], &mut buf2)
             .unwrap();
         assert_eq!(&buf2[..dec_len], msg);
+    }
+
+    #[test]
+    fn test_noise_xxpsk0_initiator_responder_pair() {
+        // Explicitly test the initiator-first message ordering
+        let code = "654321";
+        let psk = derive_psk_from_code(code);
+        let pattern: snow::params::NoiseParams = NOISE_PATTERN_PAIRING.parse().unwrap();
+
+        let init_kp = Builder::new(pattern.clone()).generate_keypair().unwrap();
+        let resp_kp = Builder::new(pattern.clone()).generate_keypair().unwrap();
+
+        let mut initiator = Builder::new(pattern.clone())
+            .local_private_key(&init_kp.private)
+            .psk(0, &psk)
+            .build_initiator()
+            .unwrap();
+        let mut responder = Builder::new(pattern)
+            .local_private_key(&resp_kp.private)
+            .psk(0, &psk)
+            .build_responder()
+            .unwrap();
+
+        let mut buf1 = vec![0u8; 65535];
+        let mut buf2 = vec![0u8; 65535];
+
+        // Message 1: initiator -> responder (-> psk, e)
+        let len1 = initiator.write_message(&[], &mut buf1).unwrap();
+        responder.read_message(&buf1[..len1], &mut buf2).unwrap();
+
+        // Message 2: responder -> initiator (<- e, ee, s, es)
+        let len2 = responder.write_message(&[], &mut buf1).unwrap();
+        initiator.read_message(&buf1[..len2], &mut buf2).unwrap();
+
+        // Message 3: initiator -> responder (-> s, se)
+        let len3 = initiator.write_message(&[], &mut buf1).unwrap();
+        responder.read_message(&buf1[..len3], &mut buf2).unwrap();
+
+        // Both should have each other's static keys
+        assert_eq!(initiator.get_remote_static().unwrap(), &resp_kp.public[..]);
+        assert_eq!(responder.get_remote_static().unwrap(), &init_kp.public[..]);
+
+        // Transport mode works
+        let mut init_t = initiator.into_transport_mode().unwrap();
+        let mut resp_t = responder.into_transport_mode().unwrap();
+
+        let msg = b"initiator says hello";
+        let len = init_t.write_message(msg, &mut buf1).unwrap();
+        let dec_len = resp_t.read_message(&buf1[..len], &mut buf2).unwrap();
+        assert_eq!(&buf2[..dec_len], msg);
+
+        let reply = b"responder replies";
+        let len = resp_t.write_message(reply, &mut buf1).unwrap();
+        let dec_len = init_t.read_message(&buf1[..len], &mut buf2).unwrap();
+        assert_eq!(&buf2[..dec_len], reply);
+    }
+
+    #[test]
+    fn test_noise_kk_initiator_responder_pair() {
+        let pattern: snow::params::NoiseParams = NOISE_PATTERN_PAIRED.parse().unwrap();
+
+        let init_kp = Builder::new(pattern.clone()).generate_keypair().unwrap();
+        let resp_kp = Builder::new(pattern.clone()).generate_keypair().unwrap();
+
+        let mut initiator = Builder::new(pattern.clone())
+            .local_private_key(&init_kp.private)
+            .remote_public_key(&resp_kp.public)
+            .build_initiator()
+            .unwrap();
+        let mut responder = Builder::new(pattern)
+            .local_private_key(&resp_kp.private)
+            .remote_public_key(&init_kp.public)
+            .build_responder()
+            .unwrap();
+
+        let mut buf1 = vec![0u8; 65535];
+        let mut buf2 = vec![0u8; 65535];
+
+        // Message 1: initiator -> responder (-> e, es, ss)
+        let len1 = initiator.write_message(&[], &mut buf1).unwrap();
+        responder.read_message(&buf1[..len1], &mut buf2).unwrap();
+
+        // Message 2: responder -> initiator (<- e, ee, se)
+        let len2 = responder.write_message(&[], &mut buf1).unwrap();
+        initiator.read_message(&buf1[..len2], &mut buf2).unwrap();
+
+        let mut init_t = initiator.into_transport_mode().unwrap();
+        let mut resp_t = responder.into_transport_mode().unwrap();
+
+        // Verify bidirectional encrypted exchange
+        let msg = b"KK initiator message";
+        let len = init_t.write_message(msg, &mut buf1).unwrap();
+        let dec_len = resp_t.read_message(&buf1[..len], &mut buf2).unwrap();
+        assert_eq!(&buf2[..dec_len], msg);
+
+        let reply = b"KK responder reply";
+        let len = resp_t.write_message(reply, &mut buf1).unwrap();
+        let dec_len = init_t.read_message(&buf1[..len], &mut buf2).unwrap();
+        assert_eq!(&buf2[..dec_len], reply);
     }
 
     #[test]
