@@ -20,8 +20,8 @@ android {
         applicationId = "com.example.universalclipboard"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "0.8.0"
+        versionCode = 6
+        versionName = "0.8.1"
     }
 
     buildTypes {

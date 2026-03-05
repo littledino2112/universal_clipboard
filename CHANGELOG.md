@@ -1,3 +1,8 @@
+## v0.8.1 (2026-03-05)
+
+### Fixes
+- fix(storage): handle legacy paired_devices.json format (#19)
+
 ## v0.8.0 (2026-03-04)
 
 ### Features
